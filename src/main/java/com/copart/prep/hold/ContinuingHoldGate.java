@@ -10,4 +10,8 @@ public class ContinuingHoldGate implements HoldGate {
     @Override
     public void afterCustomerEventLock() {
     }
+
+    @Override
+    public void beforeWritingSeats() {
+    }
 }

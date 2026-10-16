@@ -16,6 +16,9 @@ public class PausingHoldGate implements HoldGate {
     private final AtomicInteger arrivals = new AtomicInteger();
     private volatile CountDownLatch firstArrived = new CountDownLatch(1);
     private volatile CountDownLatch release = new CountDownLatch(1);
+    private final AtomicBoolean writersArmed = new AtomicBoolean(false);
+    private volatile CountDownLatch writersArrived = new CountDownLatch(1);
+    private volatile CountDownLatch writersRelease = new CountDownLatch(1);
 
     public void arm() {
         arrivals.set(0);
@@ -33,6 +36,21 @@ public class PausingHoldGate implements HoldGate {
         release.countDown();
     }
 
+    public void armWriters(int expected) {
+        writersArrived = new CountDownLatch(expected);
+        writersRelease = new CountDownLatch(1);
+        writersArmed.set(true);
+    }
+
+    public boolean awaitWriters(Duration timeout) throws InterruptedException {
+        return writersArrived.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    public void releaseWriters() {
+        writersArmed.set(false);
+        writersRelease.countDown();
+    }
+
     @Override
     public void afterCustomerEventLock() {
         if (!armed.get()) {
@@ -43,6 +61,21 @@ public class PausingHoldGate implements HoldGate {
         }
         CountDownLatch toRelease = release;
         firstArrived.countDown();
+        try {
+            toRelease.await();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    @Override
+    public void beforeWritingSeats() {
+        if (!writersArmed.get()) {
+            return;
+        }
+        CountDownLatch toRelease = writersRelease;
+        writersArrived.countDown();
         try {
             toRelease.await();
         } catch (InterruptedException exception) {

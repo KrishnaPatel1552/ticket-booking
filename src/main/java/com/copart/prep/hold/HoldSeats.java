@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -82,8 +83,14 @@ public class HoldSeats {
             order = orders.save(new CustomerOrder(customer, event, now));
         }
         Instant heldUntil = now.plus(HOLD_FOR);
-        for (Seat seat : chosen) {
-            eventSeats.save(new EventSeat(order, event, seat, EventSeatKind.HOLD, heldUntil));
+        holdGate.beforeWritingSeats();
+        try {
+            for (Seat seat : chosen) {
+                eventSeats.save(new EventSeat(order, event, seat, EventSeatKind.HOLD, heldUntil));
+            }
+            entityManager.flush();
+        } catch (DataIntegrityViolationException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
         return new HoldSeatsResponse(order.getId(), List.copyOf(seatIds), heldUntil);
     }

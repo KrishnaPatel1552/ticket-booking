@@ -201,6 +201,53 @@ class HoldApiTest {
         }
     }
 
+    @Test
+    void twoCustomersCannotBothHoldTheSameSeatAndThatSeatCanBeHeldForAnotherEvent() throws Exception {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+
+        pausingHoldGate.armWriters(2);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        ResponseEntity<JsonNode> adaHeld;
+        ResponseEntity<JsonNode> graceHeld;
+        try {
+            Future<ResponseEntity<JsonNode>> adaFuture = pool.submit(() -> ada.post(
+                    "/api/events/" + eventId + "/holds",
+                    java.util.Map.of("seatIds", List.of(a1))));
+            Future<ResponseEntity<JsonNode>> graceFuture = pool.submit(() -> grace.post(
+                    "/api/events/" + eventId + "/holds",
+                    java.util.Map.of("seatIds", List.of(a1))));
+            assertThat(pausingHoldGate.awaitWriters(Duration.ofSeconds(10))).isTrue();
+            awaitTwoDatabaseSessionsIdleInTransaction();
+            pausingHoldGate.releaseWriters();
+            adaHeld = adaFuture.get(15, TimeUnit.SECONDS);
+            graceHeld = graceFuture.get(15, TimeUnit.SECONDS);
+        } finally {
+            pausingHoldGate.releaseWriters();
+            pool.shutdownNow();
+        }
+
+        assertThat(List.of(adaHeld.getStatusCode(), graceHeld.getStatusCode()))
+                .containsExactlyInAnyOrder(HttpStatus.OK, HttpStatus.CONFLICT);
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("held");
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A2")).isEqualTo("free");
+
+        ApiSession refused = adaHeld.getStatusCode().isSameCodeAs(HttpStatus.CONFLICT) ? ada : grace;
+        long otherEventId = createEvent(admin);
+        JsonNode other = refused.get("/api/events/" + otherEventId).getBody();
+        assertThat(seatId(other, "A1")).isEqualTo(a1);
+        ResponseEntity<JsonNode> otherHold = refused.post(
+                "/api/events/" + otherEventId + "/holds",
+                java.util.Map.of("seatIds", List.of(a1)));
+        assertThat(otherHold.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(seatState(refused.get("/api/events/" + otherEventId).getBody(), "A1")).isEqualTo("held");
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("held");
+    }
+
     private void awaitSecondDatabaseSessionWaitingOnALock() throws SQLException, InterruptedException {
         long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
         while (System.nanoTime() < deadline) {
@@ -219,6 +266,32 @@ class HoldApiTest {
                         "select count(*) from pg_stat_activity "
                                 + "where datname = current_database() "
                                 + "and wait_event_type = 'Lock' "
+                                + "and pid <> pg_backend_pid()")) {
+            if (!rows.next()) {
+                return 0;
+            }
+            return rows.getInt(1);
+        }
+    }
+
+    private void awaitTwoDatabaseSessionsIdleInTransaction() throws SQLException, InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline) {
+            if (databaseSessionsIdleInTransaction() >= 2) {
+                return;
+            }
+            Thread.sleep(20);
+        }
+        throw new AssertionError("The two holds never overlapped as two database sessions");
+    }
+
+    private int databaseSessionsIdleInTransaction() throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+                Statement statement = connection.createStatement();
+                ResultSet rows = statement.executeQuery(
+                        "select count(*) from pg_stat_activity "
+                                + "where datname = current_database() "
+                                + "and state = 'idle in transaction' "
                                 + "and pid <> pg_backend_pid()")) {
             if (!rows.next()) {
                 return 0;
