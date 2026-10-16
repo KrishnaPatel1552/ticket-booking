@@ -1,3 +1,6 @@
+> Canonical ticket: https://github.com/KrishnaPatel1552/copart-prep/issues/8
+> Closed as #8. This file is the archive. The resolution comment on the issue is the answer.
+
 # One-page design note
 
 Type: grilling

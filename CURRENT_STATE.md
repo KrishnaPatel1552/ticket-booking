@@ -1,5 +1,7 @@
 # Copart SDET take-home — current state
 
+Both wayfinder maps are closed on GitHub. [Ticket booking take-home route](https://github.com/KrishnaPatel1552/copart-prep/issues/1) is the Step 1 route. [Booking spec for Monday](https://github.com/KrishnaPatel1552/copart-prep/issues/2) is the spec route. The notes below are the 14 October brief, not the live tracker.
+
 Updated: Wednesday 14 October 2026, afternoon ET.
 
 The route is the map [Ticket booking take-home route](.scratch/take-home-route/map.md). This file is the brief. Decisions live on that map's tickets, not here.

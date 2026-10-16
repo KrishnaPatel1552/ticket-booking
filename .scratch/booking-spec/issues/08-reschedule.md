@@ -1,3 +1,6 @@
+> Canonical ticket: https://github.com/KrishnaPatel1552/copart-prep/issues/14
+> Closed as #14. This file is the archive. The resolution comment on the issue is the answer.
+
 # What a reschedule does
 
 Label: wayfinder:grilling

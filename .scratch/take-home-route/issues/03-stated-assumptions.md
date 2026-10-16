@@ -1,3 +1,6 @@
+> Canonical ticket: https://github.com/KrishnaPatel1552/copart-prep/issues/6
+> Closed as #6. This file is the archive. The resolution comment on the issue is the answer.
+
 # Assumptions we will design against
 
 Type: grilling

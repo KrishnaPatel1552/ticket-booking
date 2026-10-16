@@ -1,3 +1,6 @@
+> Canonical ticket: https://github.com/KrishnaPatel1552/copart-prep/issues/13
+> Closed as #13. This file is the archive. The resolution comment on the issue is the answer.
+
 # Checkout lifetime and an unknown payment
 
 Label: wayfinder:grilling

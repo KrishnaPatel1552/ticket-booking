@@ -1,3 +1,6 @@
+> Canonical ticket: https://github.com/KrishnaPatel1552/copart-prep/issues/7
+> Closed as #7. This file is the archive. The resolution comment on the issue is the answer.
+
 # What today's reply cuts or defers
 
 Type: grilling
