@@ -3,9 +3,18 @@ package com.copart.prep;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -24,6 +33,9 @@ class HoldApiTest {
 
     @Autowired
     private TestRestTemplate rest;
+
+    @Autowired
+    private DataSource dataSource;
 
     @Test
     void customerHoldsFreeSeatsAndTheSeatMapShowsThemHeld() {
@@ -101,6 +113,92 @@ class HoldApiTest {
         JsonNode afterOne = ada.get("/api/events/" + eventId).getBody();
         assertThat(seatState(afterOne, "A6")).isEqualTo("held");
         assertThat(seatState(afterOne, "A7")).isEqualTo("free");
+    }
+
+    @Test
+    void withElevenAlreadyCountingARequestForTwoWritesNothingAndOneWritesAHold() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        List<Long> priorSeats = IntStream.rangeClosed(1, 11)
+                .mapToObj(number -> seatId(opened, "A" + number))
+                .toList();
+        recordTicketsAlreadyCountingTowardTwelve(eventId, priorSeats);
+
+        JsonNode withTickets = ada.get("/api/events/" + eventId).getBody();
+        for (int number = 1; number <= 11; number++) {
+            assertThat(seatState(withTickets, "A" + number)).isEqualTo("ticket");
+        }
+
+        ResponseEntity<JsonNode> two = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(seatId(opened, "A12"), seatId(opened, "B1"))));
+        assertThat(two.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode afterTwo = ada.get("/api/events/" + eventId).getBody();
+        assertThat(seatState(afterTwo, "A12")).isEqualTo("free");
+        assertThat(seatState(afterTwo, "B1")).isEqualTo("free");
+        assertThat(seatState(afterTwo, "A1")).isEqualTo("ticket");
+
+        ResponseEntity<JsonNode> one = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(seatId(opened, "A12"))));
+        assertThat(one.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode afterOne = ada.get("/api/events/" + eventId).getBody();
+        assertThat(seatState(afterOne, "A12")).isEqualTo("held");
+        assertThat(seatState(afterOne, "B1")).isEqualTo("free");
+        assertThat(seatState(afterOne, "A11")).isEqualTo("ticket");
+    }
+
+    private void recordTicketsAlreadyCountingTowardTwelve(long eventId, List<Long> seatIds) {
+        try (Connection connection = dataSource.getConnection()) {
+            long customerId = queryLong(connection, "select id from account where email = ?", "ada@example.com");
+            long firstOrder = insertClosedOrder(connection, customerId, eventId);
+            long secondOrder = insertClosedOrder(connection, customerId, eventId);
+            for (int index = 0; index < seatIds.size(); index++) {
+                long orderId = index < 6 ? firstOrder : secondOrder;
+                insertTicket(connection, orderId, eventId, seatIds.get(index));
+            }
+        } catch (SQLException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private static long queryLong(Connection connection, String sql, String parameter) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, parameter);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    throw new IllegalStateException("Missing row");
+                }
+                return rows.getLong(1);
+            }
+        }
+    }
+
+    private static long insertClosedOrder(Connection connection, long customerId, long eventId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "insert into customer_order (customer_id, event_id, opened_at, open_for_holds) values (?, ?, ?, false)",
+                Statement.RETURN_GENERATED_KEYS)) {
+            statement.setLong(1, customerId);
+            statement.setLong(2, eventId);
+            statement.setTimestamp(3, Timestamp.from(Instant.parse("2026-10-01T00:00:00Z")));
+            statement.executeUpdate();
+            try (ResultSet keys = statement.getGeneratedKeys()) {
+                if (!keys.next()) {
+                    throw new IllegalStateException("Order id was not returned");
+                }
+                return keys.getLong(1);
+            }
+        }
+    }
+
+    private static void insertTicket(Connection connection, long orderId, long eventId, long seatId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "insert into event_seat (order_id, event_id, seat_id, kind, active) values (?, ?, ?, 'TICKET', true)")) {
+            statement.setLong(1, orderId);
+            statement.setLong(2, eventId);
+            statement.setLong(3, seatId);
+            statement.executeUpdate();
+        }
     }
 
     private long createEvent(ApiSession admin) {
