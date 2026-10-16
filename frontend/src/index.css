@@ -133,8 +133,28 @@ button:disabled {
   margin-top: 1rem;
 }
 
-.hold-bar p {
+.hold-bar p,
+.order p {
   margin: 0;
+}
+
+.order {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #fffaf3;
+  border: 1px solid #d9cbb6;
+}
+
+.order h3 {
+  margin: 0;
+}
+
+.hold-bar select {
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #b7a48c;
+  background: #fff;
 }
 
 .seat {

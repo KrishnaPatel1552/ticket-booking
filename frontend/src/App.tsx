@@ -1,11 +1,16 @@
 import { useState, type FormEvent } from "react";
 import {
+  checkout,
+  fetchOrder,
   fetchSeatMap,
   holdSeats,
   searchEvents,
   signIn,
   type EventSeatMap,
   type EventSummary,
+  type OrderView,
+  type PaymentMock,
+  type PaymentStatus,
   type SeatState,
   type SeatView,
   type SignedIn,
@@ -50,6 +55,23 @@ function stateLabel(state: SeatState): string {
   }
 }
 
+function paymentLabel(status: PaymentStatus): string {
+  switch (status) {
+    case "pending":
+      return "Pending";
+    case "unknown":
+      return "Unknown";
+    case "succeeded":
+      return "Succeeded";
+    case "declined":
+      return "Declined";
+    default: {
+      const unexpected: never = status;
+      return unexpected;
+    }
+  }
+}
+
 export default function App() {
   const [signedIn, setSignedIn] = useState<SignedIn | null>(null);
   const [email, setEmail] = useState("");
@@ -67,6 +89,12 @@ export default function App() {
   const [selectedSeatIds, setSelectedSeatIds] = useState<number[]>([]);
   const [holding, setHolding] = useState(false);
   const [holdError, setHoldError] = useState<string | null>(null);
+  const [orderId, setOrderId] = useState<number | null>(null);
+  const [heldSeatIds, setHeldSeatIds] = useState<number[]>([]);
+  const [mockResult, setMockResult] = useState<PaymentMock>("success");
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [order, setOrder] = useState<OrderView | null>(null);
 
   async function loadSeatMap(eventId: number) {
     setOpening(true);
@@ -127,6 +155,10 @@ export default function App() {
     setSeatMap(null);
     setSelectedSeatIds([]);
     setHoldError(null);
+    setCheckoutError(null);
+    setOrderId(null);
+    setHeldSeatIds([]);
+    setOrder(null);
     await loadSeatMap(eventId);
   }
 
@@ -145,16 +177,39 @@ export default function App() {
       return;
     }
     const eventId = seatMap.id;
+    const seatsToHold = selectedSeatIds;
     setHolding(true);
     setHoldError(null);
     try {
-      await holdSeats(eventId, selectedSeatIds);
+      const held = await holdSeats(eventId, seatsToHold);
+      setOrderId(held.orderId);
+      setHeldSeatIds((current) => (orderId === held.orderId ? [...current, ...seatsToHold] : [...seatsToHold]));
       setSelectedSeatIds([]);
     } catch {
       setHoldError("Those seats could not be held.");
     } finally {
       await loadSeatMap(eventId);
       setHolding(false);
+    }
+  }
+
+  async function submitCheckout() {
+    if (seatMap == null || orderId == null || heldSeatIds.length === 0) {
+      return;
+    }
+    const eventId = seatMap.id;
+    const checkedOutOrderId = orderId;
+    setCheckingOut(true);
+    setCheckoutError(null);
+    try {
+      await checkout(checkedOutOrderId, heldSeatIds, mockResult);
+      setHeldSeatIds([]);
+      setOrder(await fetchOrder(checkedOutOrderId));
+    } catch {
+      setCheckoutError("Checkout did not complete.");
+    } finally {
+      await loadSeatMap(eventId);
+      setCheckingOut(false);
     }
   }
 
@@ -242,6 +297,41 @@ export default function App() {
             <p>{selectedSeatIds.length === 0 ? "Select free seats to hold." : `${selectedSeatIds.length} selected`}</p>
             {holdError != null ? <p className="error">{holdError}</p> : null}
           </div>
+          <div className="hold-bar">
+            <label>
+              Payment result
+              <select
+                value={mockResult}
+                onChange={(event) => setMockResult(event.target.value as PaymentMock)}
+                disabled={checkingOut}
+              >
+                <option value="success">Success</option>
+                <option value="decline">Decline</option>
+                <option value="timeout">Timeout</option>
+                <option value="unknown">Unknown</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => void submitCheckout()}
+              disabled={checkingOut || holding || heldSeatIds.length === 0}
+            >
+              {checkingOut ? "Checking out…" : "Check out"}
+            </button>
+            {checkoutError != null ? <p className="error">{checkoutError}</p> : null}
+          </div>
+          {order != null ? (
+            <div className="order">
+              <h3>Order</h3>
+              <p>
+                Payment: {order.payment == null ? "None" : paymentLabel(order.payment.status)}
+                {order.payment == null ? "" : ` · ${formatCents(order.payment.amountCents)}`}
+              </p>
+              <p>
+                Tickets: {order.tickets.length === 0 ? "None" : order.tickets.map((ticket) => ticket.label).join(", ")}
+              </p>
+            </div>
+          ) : null}
           {seatMap.sections.map((section) => (
             <div key={section.name} className="section">
               <h3>{section.name}</h3>

@@ -69,14 +69,53 @@ export async function fetchSeatMap(eventId: number): Promise<EventSeatMap> {
   return readJson<EventSeatMap>(response);
 }
 
-export async function holdSeats(eventId: number, seatIds: number[]): Promise<void> {
+export type PaymentStatus = "pending" | "unknown" | "succeeded" | "declined";
+
+export type PaymentMock = "success" | "decline" | "timeout" | "unknown";
+
+export type HeldSeats = {
+  orderId: number;
+  seatIds: number[];
+  heldUntil: string;
+};
+
+export type TicketView = {
+  seatId: number;
+  label: string;
+};
+
+export type OrderView = {
+  id: number;
+  eventId: number;
+  payment: { status: PaymentStatus; amountCents: number } | null;
+  tickets: TicketView[];
+};
+
+export async function holdSeats(eventId: number, seatIds: number[]): Promise<HeldSeats> {
   const response = await fetch(`/api/events/${eventId}/holds`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
     body: JSON.stringify({ seatIds }),
   });
+  return readJson<HeldSeats>(response);
+}
+
+export async function checkout(orderId: number, seatIds: number[], mock: PaymentMock): Promise<void> {
+  const response = await fetch(`/api/orders/${orderId}/checkout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ seatIds, mock }),
+  });
   if (!response.ok) {
     throw new Error(String(response.status));
   }
+}
+
+export async function fetchOrder(orderId: number): Promise<OrderView> {
+  const response = await fetch(`/api/orders/${orderId}`, {
+    credentials: "include",
+  });
+  return readJson<OrderView>(response);
 }
