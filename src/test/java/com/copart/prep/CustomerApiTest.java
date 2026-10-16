@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -148,6 +149,74 @@ class CustomerApiTest {
                 assertThat(seat.get("state").asText()).isEqualTo("free");
             }
         }
+    }
+
+    @Test
+    void searchReturnsAnEventTheAdminCreated() {
+        ApiSession admin = signIn("admin@example.com");
+        long venueId = admin.get("/api/events?name=lights").getBody().get(0).get("venueId").asLong();
+        String name = "CedarJazz-" + UUID.randomUUID();
+
+        ResponseEntity<JsonNode> created = admin.post("/api/admin/events", java.util.Map.of(
+                "name", name,
+                "venueId", venueId,
+                "startsAt", "2026-12-20T01:00:00Z",
+                "timeZone", "America/Chicago",
+                "earlyBirdStartsAt", "2026-11-01T00:00:00Z",
+                "earlyBirdEndsAt", "2026-12-01T00:00:00Z"));
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+        ApiSession grace = signIn("grace@example.com");
+        JsonNode match = findNamed(grace.get("/api/events?name=" + name).getBody(), name);
+        assertThat(match.get("startsAt").asText()).isEqualTo("2026-12-20T01:00:00Z");
+        assertThat(match.get("timeZone").asText()).isEqualTo("America/Chicago");
+        assertThat(match.get("venueId").asLong()).isEqualTo(venueId);
+
+        JsonNode opened = grace.get("/api/events/" + match.get("id").asLong()).getBody();
+        assertThat(opened.get("earlyBirdStartsAt").asText()).isEqualTo("2026-11-01T00:00:00Z");
+        assertThat(opened.get("earlyBirdEndsAt").asText()).isEqualTo("2026-12-01T00:00:00Z");
+    }
+
+    @Test
+    void secondEventAtTheSameVenueShowsTheSameSeatsFree() {
+        ApiSession admin = signIn("admin@example.com");
+        long venueId = admin.get("/api/events?name=lights").getBody().get(0).get("venueId").asLong();
+        String name = "SecondNight-" + UUID.randomUUID();
+
+        ResponseEntity<JsonNode> created = admin.post("/api/admin/events", java.util.Map.of(
+                "name", name,
+                "venueId", venueId,
+                "startsAt", "2027-01-10T01:00:00Z",
+                "timeZone", "America/New_York"));
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+        ApiSession ada = signIn("ada@example.com");
+        JsonNode match = findNamed(ada.get("/api/events?name=" + name).getBody(), name);
+        JsonNode opened = ada.get("/api/events/" + match.get("id").asLong()).getBody();
+        assertThat(opened.get("earlyBirdStartsAt").isNull()).isTrue();
+        assertThat(opened.get("earlyBirdEndsAt").isNull()).isTrue();
+        assertThat(opened.get("sections")).hasSize(2);
+        assertThat(opened.get("sections").get(0).get("name").asText()).isEqualTo("Orchestra");
+        assertThat(seatLabels(opened.get("sections").get(0))).containsExactly(
+                "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A11", "A12");
+        assertThat(opened.get("sections").get(1).get("name").asText()).isEqualTo("Balcony");
+        assertThat(seatLabels(opened.get("sections").get(1))).containsExactly(
+                "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8");
+        for (JsonNode section : opened.get("sections")) {
+            for (JsonNode seat : section.get("seats")) {
+                assertThat(seat.get("state").asText()).isEqualTo("free");
+                assertThat(seat.get("priceCents").asInt()).isEqualTo(5000);
+            }
+        }
+    }
+
+    private static JsonNode findNamed(JsonNode events, String name) {
+        for (JsonNode event : events) {
+            if (name.equals(event.get("name").asText())) {
+                return event;
+            }
+        }
+        throw new AssertionError("No event named " + name);
     }
 
     private static List<String> seatLabels(JsonNode section) {
