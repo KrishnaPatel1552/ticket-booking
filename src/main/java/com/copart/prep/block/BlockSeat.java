@@ -10,6 +10,8 @@ import com.copart.prep.signin.Account;
 import com.copart.prep.signin.AccountRepository;
 import com.copart.prep.venue.Seat;
 import com.copart.prep.venue.SeatRepository;
+import com.copart.prep.venue.SeatRowLock;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -24,6 +26,7 @@ public class BlockSeat {
     private final SeatRepository seats;
     private final SeatBlockRepository seatBlocks;
     private final AuditEntryRepository auditEntries;
+    private final SeatRowLock seatRowLock;
     private final AppClock clock;
 
     public BlockSeat(
@@ -32,12 +35,14 @@ public class BlockSeat {
             SeatRepository seats,
             SeatBlockRepository seatBlocks,
             AuditEntryRepository auditEntries,
+            SeatRowLock seatRowLock,
             AppClock clock) {
         this.accounts = accounts;
         this.events = events;
         this.seats = seats;
         this.seatBlocks = seatBlocks;
         this.auditEntries = auditEntries;
+        this.seatRowLock = seatRowLock;
         this.clock = clock;
     }
 
@@ -46,6 +51,7 @@ public class BlockSeat {
         Account admin = admin(email);
         Event event = event(eventId);
         Seat seat = seatAtEvent(seatId, event);
+        seatRowLock.lockInIdOrder(List.of(seat.getId()));
         seatBlocks.save(new SeatBlock(event, seat, clock.now()));
         record(admin, event, seat, AuditKind.BLOCK, reason);
     }
@@ -55,6 +61,7 @@ public class BlockSeat {
         Account admin = admin(email);
         Event event = event(eventId);
         Seat seat = seatAtEvent(seatId, event);
+        seatRowLock.lockInIdOrder(List.of(seat.getId()));
         SeatBlock block = seatBlocks.findByEventIdAndSeatIdAndActiveTrue(event.getId(), seat.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT));
         block.release();

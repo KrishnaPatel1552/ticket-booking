@@ -142,6 +142,27 @@ class BlockApiTest {
         assertThat(entries.get(0).get("kind").asText()).isEqualTo("block");
     }
 
+    @Test
+    void holdOnABlockedSeatFails() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        assertThat(admin.post(
+                "/api/admin/events/" + eventId + "/seats/" + a1 + "/block",
+                java.util.Map.of("reason", "Artist hold")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<JsonNode> held = ada.post(
+                "/api/events/" + eventId + "/holds",
+                java.util.Map.of("seatIds", List.of(a1)));
+
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode after = ada.get("/api/events/" + eventId).getBody();
+        assertThat(seatState(after, "A1")).isEqualTo("blocked");
+        assertThat(seatState(after, "A2")).isEqualTo("free");
+    }
+
     private long createEvent(ApiSession admin) {
         long venueId = admin.get("/api/events?name=lights").getBody().get(0).get("venueId").asLong();
         String name = "BlockNight-" + UUID.randomUUID();

@@ -1,5 +1,6 @@
 package com.copart.prep.hold;
 
+import com.copart.prep.block.SeatBlockRepository;
 import com.copart.prep.clock.AppClock;
 import com.copart.prep.event.Event;
 import com.copart.prep.event.EventRepository;
@@ -8,6 +9,7 @@ import com.copart.prep.signin.Account;
 import com.copart.prep.signin.AccountRepository;
 import com.copart.prep.venue.Seat;
 import com.copart.prep.venue.SeatRepository;
+import com.copart.prep.venue.SeatRowLock;
 import jakarta.persistence.EntityManager;
 import java.time.Duration;
 import java.time.Instant;
@@ -32,10 +34,12 @@ public class HoldSeats {
     private final SeatRepository seats;
     private final CustomerOrderRepository orders;
     private final EventSeatRepository eventSeats;
+    private final SeatBlockRepository seatBlocks;
     private final PaymentRepository payments;
     private final AppClock clock;
     private final EntityManager entityManager;
     private final HoldGate holdGate;
+    private final SeatRowLock seatRowLock;
 
     public HoldSeats(
             AccountRepository accounts,
@@ -43,19 +47,23 @@ public class HoldSeats {
             SeatRepository seats,
             CustomerOrderRepository orders,
             EventSeatRepository eventSeats,
+            SeatBlockRepository seatBlocks,
             PaymentRepository payments,
             AppClock clock,
             EntityManager entityManager,
-            HoldGate holdGate) {
+            HoldGate holdGate,
+            SeatRowLock seatRowLock) {
         this.accounts = accounts;
         this.events = events;
         this.seats = seats;
         this.orders = orders;
         this.eventSeats = eventSeats;
+        this.seatBlocks = seatBlocks;
         this.payments = payments;
         this.clock = clock;
         this.entityManager = entityManager;
         this.holdGate = holdGate;
+        this.seatRowLock = seatRowLock;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -93,6 +101,12 @@ public class HoldSeats {
         }
         Instant heldUntil = now.plus(HOLD_FOR);
         holdGate.beforeWritingSeats();
+        seatRowLock.lockInIdOrder(chosen.stream().map(Seat::getId).toList());
+        for (Seat seat : chosen) {
+            if (seatBlocks.findByEventIdAndSeatIdAndActiveTrue(event.getId(), seat.getId()).isPresent()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT);
+            }
+        }
         try {
             for (Seat seat : chosen) {
                 eventSeats.save(new EventSeat(order, event, seat, EventSeatKind.HOLD, heldUntil));
