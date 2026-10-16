@@ -26,11 +26,16 @@ public class FinishPayment {
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public void apply(long paymentId, List<Long> seatIds, PaymentMockResult result) {
-        if (result != PaymentMockResult.SUCCESS) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
-        }
         Payment payment = payments.findById(paymentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        switch (result) {
+            case SUCCESS -> succeed(payment, seatIds);
+            case DECLINE -> decline(payment, seatIds);
+            case TIMEOUT, UNKNOWN -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    private void succeed(Payment payment, List<Long> seatIds) {
         List<EventSeat> holds = eventSeats.lockActiveForSeats(payment.getOrder().getId(), seatIds);
         if (holds.size() != seatIds.size()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
@@ -41,6 +46,14 @@ public class FinishPayment {
                 throw new ResponseStatusException(HttpStatus.CONFLICT);
             }
             hold.becomeTicket();
+        }
+    }
+
+    private void decline(Payment payment, List<Long> seatIds) {
+        List<EventSeat> holds = eventSeats.lockActiveForSeats(payment.getOrder().getId(), seatIds);
+        payment.mark(PaymentStatus.DECLINED);
+        for (EventSeat hold : holds) {
+            hold.release();
         }
     }
 }
