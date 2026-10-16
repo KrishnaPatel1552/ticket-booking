@@ -160,6 +160,66 @@ class PriceApiTest {
                 .isEqualTo(5000);
     }
 
+    @Test
+    void aSecondPromoCodeIsRejectedAndTheFirstCodeStays() {
+        ApiSession admin = signIn("admin@example.com");
+        String first = createPromo(admin, 100, 5, 2, false);
+        String second = createPromo(admin, 300, 5, 2, false);
+        long eventId = createPlainEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(a1)));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+        assertThat(ada.post("/api/orders/" + orderId + "/promo-code", java.util.Map.of("code", first)).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<JsonNode> rejected = ada.post("/api/orders/" + orderId + "/promo-code", java.util.Map.of(
+                "code", second));
+
+        assertThat(rejected.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode order = ada.get("/api/orders/" + orderId).getBody();
+        assertThat(order.get("promoCode").asText()).isEqualTo(first);
+        ResponseEntity<JsonNode> checkedOut = ada.post("/api/orders/" + orderId + "/checkout", java.util.Map.of(
+                "seatIds", List.of(a1),
+                "mock", "success"));
+        assertThat(checkedOut.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ada.get("/api/orders/" + orderId).getBody().get("payment").get("amountCents").asInt())
+                .isEqualTo(5000);
+        assertThat(ada.get("/api/orders/" + orderId).getBody().get("promoCode").asText()).isEqualTo(first);
+    }
+
+    @Test
+    void anExclusivePromoCodeUsesThePriceTierAndDropsTheGroupRate() {
+        ApiSession admin = signIn("admin@example.com");
+        String code = createPromo(admin, 1000, 5, 2, true);
+        long eventId = createEvent(admin, "2026-10-01T00:00:00Z", "2026-11-15T00:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        List<Long> seats = List.of(
+                seatId(opened, "A1"),
+                seatId(opened, "A2"),
+                seatId(opened, "A3"),
+                seatId(opened, "A4"));
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of("seatIds", seats));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+        assertThat(ada.post("/api/orders/" + orderId + "/promo-code", java.util.Map.of("code", code)).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<JsonNode> checkedOut = ada.post("/api/orders/" + orderId + "/checkout", java.util.Map.of(
+                "seatIds", seats,
+                "mock", "success"));
+
+        assertThat(checkedOut.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ada.get("/api/orders/" + orderId).getBody().get("payment").get("amountCents").asInt())
+                .isEqualTo(19100);
+    }
+
     private String createPromo(ApiSession admin, int discountCents, int globalLimit, int perCustomerLimit, boolean exclusive) {
         String code = "PROMO-" + UUID.randomUUID();
         ResponseEntity<JsonNode> created = admin.post("/api/admin/promo-codes", java.util.Map.of(

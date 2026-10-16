@@ -73,12 +73,14 @@ public class RecordPendingPayment {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
         SaleTerms terms = saleTerms();
+        PromoCode promoCode = order.getPromoCode();
+        boolean exclusive = promoCode != null && promoCode.isExclusive();
         List<Integer> prices = new ArrayList<>();
         for (EventSeat hold : holds) {
-            prices.add(startingPriceCents(hold, now));
+            prices.add(startingPriceCents(hold, now, exclusive));
         }
-        int groupDiscount = groupDiscountCents(terms, prices);
-        int promoDiscount = promoDiscountCents(order.getPromoCode(), prices, groupDiscount);
+        int groupDiscount = exclusive ? 0 : groupDiscountCents(terms, prices);
+        int promoDiscount = promoDiscountCents(promoCode, prices, groupDiscount);
         int amount = OrderAmount.cents(terms.getServiceFeeCents(), prices) - groupDiscount - promoDiscount;
         order.closeForHolds();
         Payment payment = payments.save(new Payment(order, amount, PaymentStatus.PENDING, now));
@@ -98,8 +100,11 @@ public class RecordPendingPayment {
         return true;
     }
 
-    private static int startingPriceCents(EventSeat hold, Instant now) {
+    private static int startingPriceCents(EventSeat hold, Instant now, boolean exclusive) {
         PriceTier tier = hold.getSeat().getPriceTier();
+        if (exclusive) {
+            return tier.getPriceCents();
+        }
         Event event = hold.getEvent();
         Integer earlyBirdPriceCents = tier.getEarlyBirdPriceCents();
         Instant startsAt = event.getEarlyBirdStartsAt();

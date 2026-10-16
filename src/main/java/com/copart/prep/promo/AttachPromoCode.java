@@ -44,7 +44,7 @@ public class AttachPromoCode {
         if (!order.getCustomer().getId().equals(customer.getId())) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
-        if (payments.existsForOrder(orderId)) {
+        if (payments.existsForOrder(orderId) || order.getPromoCode() != null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
         PromoCode promoCode = promoCodes.findByCode(code.trim())
