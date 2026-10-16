@@ -1,4 +1,6 @@
 package com.copart.prep.block;
 
-public record OverrideReason(String reason) {
+import jakarta.validation.constraints.NotBlank;
+
+public record OverrideReason(@NotBlank String reason) {
 }

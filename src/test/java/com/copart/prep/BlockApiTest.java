@@ -89,6 +89,59 @@ class BlockApiTest {
         assertThat(entries.getBody().get(1).get("seatId").asLong()).isEqualTo(a1);
     }
 
+    @Test
+    void customerIsRefusedWhenBlockingOrReleasing() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+
+        ResponseEntity<JsonNode> customerBlock = ada.post(
+                "/api/admin/events/" + eventId + "/seats/" + a1 + "/block",
+                java.util.Map.of("reason", "I want this seat"));
+        assertThat(customerBlock.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("free");
+
+        assertThat(admin.post(
+                "/api/admin/events/" + eventId + "/seats/" + a1 + "/block",
+                java.util.Map.of("reason", "Artist hold")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<JsonNode> customerRelease = ada.post(
+                "/api/admin/events/" + eventId + "/seats/" + a1 + "/release",
+                java.util.Map.of("reason", "Put it back"));
+        assertThat(customerRelease.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("blocked");
+    }
+
+    @Test
+    void adminIsRefusedWithoutAReason() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        JsonNode opened = admin.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        String blockPath = "/api/admin/events/" + eventId + "/seats/" + a1 + "/block";
+
+        assertThat(admin.post(blockPath, java.util.Map.of("reason", "")).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(admin.post(blockPath, java.util.Map.of("reason", "   ")).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(admin.post(blockPath, java.util.Map.of()).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(seatState(admin.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("free");
+        assertThat(admin.get("/api/admin/events/" + eventId + "/audit-entries").getBody()).isEmpty();
+
+        assertThat(admin.post(blockPath, java.util.Map.of("reason", "Artist hold")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        String releasePath = "/api/admin/events/" + eventId + "/seats/" + a1 + "/release";
+        assertThat(admin.post(releasePath, java.util.Map.of("reason", "")).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(seatState(admin.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("blocked");
+        JsonNode entries = admin.get("/api/admin/events/" + eventId + "/audit-entries").getBody();
+        assertThat(entries).hasSize(1);
+        assertThat(entries.get(0).get("kind").asText()).isEqualTo("block");
+    }
+
     private long createEvent(ApiSession admin) {
         long venueId = admin.get("/api/events?name=lights").getBody().get(0).get("venueId").asLong();
         String name = "BlockNight-" + UUID.randomUUID();

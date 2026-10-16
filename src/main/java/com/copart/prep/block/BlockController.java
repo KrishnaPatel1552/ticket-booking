@@ -1,5 +1,6 @@
 package com.copart.prep.block;
 
+import jakarta.validation.Valid;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,7 +20,7 @@ public class BlockController {
     public void block(
             @PathVariable long eventId,
             @PathVariable long seatId,
-            @RequestBody OverrideReason request) {
+            @RequestBody @Valid OverrideReason request) {
         blockSeat.block(eventId, seatId, request.reason(), signedInEmail());
     }
 
@@ -27,7 +28,7 @@ public class BlockController {
     public void release(
             @PathVariable long eventId,
             @PathVariable long seatId,
-            @RequestBody OverrideReason request) {
+            @RequestBody @Valid OverrideReason request) {
         blockSeat.release(eventId, seatId, request.reason(), signedInEmail());
     }
 
