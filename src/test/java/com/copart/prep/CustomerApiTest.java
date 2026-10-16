@@ -69,6 +69,23 @@ class CustomerApiTest {
         assertThat(response.getBody().get("role").asText()).isEqualTo("customer");
     }
 
+    @Test
+    void adminSignsInAsAnAdmin() {
+        ApiSession session = new ApiSession();
+
+        ResponseEntity<JsonNode> response = session.post("/api/sign-in", java.util.Map.of(
+                "email", "admin@example.com",
+                "password", "password"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("email").asText()).isEqualTo("admin@example.com");
+        assertThat(response.getBody().get("role").asText()).isEqualTo("admin");
+
+        ResponseEntity<JsonNode> me = session.get("/api/me");
+        assertThat(me.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(me.getBody().get("role").asText()).isEqualTo("admin");
+    }
+
     private final class ApiSession {
         private String cookieHeader = "";
 

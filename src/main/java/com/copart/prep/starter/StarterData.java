@@ -27,6 +27,7 @@ public class StarterData implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         seedAccount("ada@example.com", AccountRole.CUSTOMER);
         seedAccount("grace@example.com", AccountRole.CUSTOMER);
+        seedAccount("admin@example.com", AccountRole.ADMIN);
     }
 
     private void seedAccount(String email, AccountRole role) {
