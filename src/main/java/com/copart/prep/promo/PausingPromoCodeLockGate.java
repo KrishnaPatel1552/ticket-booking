@@ -1,0 +1,53 @@
+package com.copart.prep.promo;
+
+import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.context.annotation.Profile;
+import org.springframework.stereotype.Component;
+
+@Component
+@Profile("test")
+public class PausingPromoCodeLockGate implements PromoCodeLockGate {
+
+    private final AtomicBoolean armed = new AtomicBoolean(false);
+    private final AtomicInteger arrivals = new AtomicInteger();
+    private volatile CountDownLatch firstArrived = new CountDownLatch(1);
+    private volatile CountDownLatch release = new CountDownLatch(1);
+
+    public void arm() {
+        arrivals.set(0);
+        firstArrived = new CountDownLatch(1);
+        release = new CountDownLatch(1);
+        armed.set(true);
+    }
+
+    public boolean awaitFirstArrival(Duration timeout) throws InterruptedException {
+        return firstArrived.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    public void release() {
+        armed.set(false);
+        release.countDown();
+    }
+
+    @Override
+    public void afterPromoCodeLock() {
+        if (!armed.get()) {
+            return;
+        }
+        if (arrivals.incrementAndGet() != 1) {
+            return;
+        }
+        CountDownLatch toRelease = release;
+        firstArrived.countDown();
+        try {
+            toRelease.await();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(exception);
+        }
+    }
+}

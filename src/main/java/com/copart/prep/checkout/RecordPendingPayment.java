@@ -12,6 +12,7 @@ import com.copart.prep.payment.PaymentRepository;
 import com.copart.prep.payment.PaymentStatus;
 import com.copart.prep.pricetier.PriceTier;
 import com.copart.prep.promo.PromoCode;
+import com.copart.prep.promo.PromoCodeLockGate;
 import com.copart.prep.saleterms.SaleTerms;
 import com.copart.prep.saleterms.SaleTermsRepository;
 import com.copart.prep.signin.Account;
@@ -39,6 +40,7 @@ public class RecordPendingPayment {
     private final SaleTermsRepository saleTerms;
     private final AppClock clock;
     private final EntityManager entityManager;
+    private final PromoCodeLockGate promoCodeLockGate;
 
     public RecordPendingPayment(
             AccountRepository accounts,
@@ -47,7 +49,8 @@ public class RecordPendingPayment {
             PaymentRepository payments,
             SaleTermsRepository saleTerms,
             AppClock clock,
-            EntityManager entityManager) {
+            EntityManager entityManager,
+            PromoCodeLockGate promoCodeLockGate) {
         this.accounts = accounts;
         this.orders = orders;
         this.eventSeats = eventSeats;
@@ -55,6 +58,7 @@ public class RecordPendingPayment {
         this.saleTerms = saleTerms;
         this.clock = clock;
         this.entityManager = entityManager;
+        this.promoCodeLockGate = promoCodeLockGate;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -125,6 +129,8 @@ public class RecordPendingPayment {
             return null;
         }
         entityManager.lock(attached, LockModeType.PESSIMISTIC_WRITE);
+        entityManager.flush();
+        promoCodeLockGate.afterPromoCodeLock();
         long taken = payments.countTaken(attached.getId());
         long takenByCustomer = payments.countTakenByCustomer(attached.getId(), customerId);
         if (taken >= attached.getGlobalLimit() || takenByCustomer >= attached.getPerCustomerLimit()) {

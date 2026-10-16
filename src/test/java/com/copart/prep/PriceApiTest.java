@@ -3,7 +3,12 @@ package com.copart.prep;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.copart.prep.checkout.PausingPaymentAttemptGate;
+import com.copart.prep.promo.PausingPromoCodeLockGate;
 import com.fasterxml.jackson.databind.JsonNode;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -14,6 +19,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,6 +41,12 @@ class PriceApiTest {
 
     @Autowired
     private PausingPaymentAttemptGate paymentGate;
+
+    @Autowired
+    private PausingPromoCodeLockGate promoLockGate;
+
+    @Autowired
+    private DataSource dataSource;
 
     @Test
     void twoSeatsInsideTheEarlyBirdWindowPriceAtTheEarlyBirdPricePlusTheFee() {
@@ -499,6 +511,83 @@ class PriceApiTest {
         assertThat(ticket.get("groupShareCents").asInt()).isEqualTo(0);
         assertThat(ticket.get("promoShareCents").asInt()).isEqualTo(0);
         assertThat(ticket.get("feeShareCents").asInt()).isEqualTo(100);
+    }
+
+    @Test
+    void theLastPromoUseGoesToTheCheckoutThatLocksTheCodeFirst() throws Exception {
+        ApiSession admin = signIn("admin@example.com");
+        String code = createPromo(admin, 200, 1, 1, false);
+        long eventId = createPlainEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        long a2 = seatId(opened, "A2");
+        ResponseEntity<JsonNode> adaHeld = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(a1)));
+        ResponseEntity<JsonNode> graceHeld = grace.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(a2)));
+        assertThat(adaHeld.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(graceHeld.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long adaOrder = adaHeld.getBody().get("orderId").asLong();
+        long graceOrder = graceHeld.getBody().get("orderId").asLong();
+        assertThat(ada.post("/api/orders/" + adaOrder + "/promo-code", java.util.Map.of("code", code)).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(grace.post("/api/orders/" + graceOrder + "/promo-code", java.util.Map.of("code", code)).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        promoLockGate.arm();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<ResponseEntity<JsonNode>> first = pool.submit(() -> ada.post(
+                    "/api/orders/" + adaOrder + "/checkout",
+                    java.util.Map.of("seatIds", List.of(a1), "mock", "success")));
+            assertThat(promoLockGate.awaitFirstArrival(Duration.ofSeconds(10))).isTrue();
+            Future<ResponseEntity<JsonNode>> second = pool.submit(() -> grace.post(
+                    "/api/orders/" + graceOrder + "/checkout",
+                    java.util.Map.of("seatIds", List.of(a2), "mock", "success")));
+            awaitSecondSessionWaitingOnThePromoLock();
+            promoLockGate.release();
+            assertThat(first.get(15, TimeUnit.SECONDS).getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(second.get(15, TimeUnit.SECONDS).getStatusCode()).isEqualTo(HttpStatus.OK);
+        } finally {
+            promoLockGate.release();
+            pool.shutdownNow();
+        }
+
+        assertThat(List.of(amount(ada, adaOrder), amount(grace, graceOrder))).containsExactlyInAnyOrder(4900, 5100);
+        assertThat(ada.get("/api/orders/" + adaOrder).getBody().get("payment").get("status").asText())
+                .isEqualTo("succeeded");
+        assertThat(grace.get("/api/orders/" + graceOrder).getBody().get("payment").get("status").asText())
+                .isEqualTo("succeeded");
+    }
+
+    private void awaitSecondSessionWaitingOnThePromoLock() throws SQLException, InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline) {
+            if (promoLockSessions()) {
+                return;
+            }
+            Thread.sleep(20);
+        }
+        throw new AssertionError("The second checkout never waited on the promo code lock");
+    }
+
+    private boolean promoLockSessions() throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+                Statement statement = connection.createStatement();
+                ResultSet rows = statement.executeQuery(
+                        "select "
+                                + "count(*) filter (where state = 'idle in transaction') as idle, "
+                                + "count(*) filter (where wait_event_type = 'Lock') as waiting "
+                                + "from pg_stat_activity "
+                                + "where datname = current_database() "
+                                + "and pid <> pg_backend_pid()")) {
+            if (!rows.next()) {
+                return false;
+            }
+            return rows.getInt("idle") >= 1 && rows.getInt("waiting") >= 1;
+        }
     }
 
     private static List<JsonNode> ticketsById(JsonNode order) {
