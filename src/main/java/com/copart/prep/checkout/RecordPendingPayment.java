@@ -17,6 +17,7 @@ import com.copart.prep.saleterms.SaleTermsRepository;
 import com.copart.prep.signin.Account;
 import com.copart.prep.signin.AccountRepository;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -73,19 +74,32 @@ public class RecordPendingPayment {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
         SaleTerms terms = saleTerms();
-        PromoCode promoCode = order.getPromoCode();
-        boolean exclusive = promoCode != null && promoCode.isExclusive();
+        PromoCode applied = appliedPromo(order.getPromoCode(), customer.getId());
+        boolean exclusive = applied != null && applied.isExclusive();
         List<Integer> prices = new ArrayList<>();
         for (EventSeat hold : holds) {
             prices.add(startingPriceCents(hold, now, exclusive));
         }
         int groupDiscount = exclusive ? 0 : groupDiscountCents(terms, prices);
-        int promoDiscount = promoDiscountCents(promoCode, prices, groupDiscount);
+        int promoDiscount = promoDiscountCents(applied, prices, groupDiscount);
         int amount = OrderAmount.cents(terms.getServiceFeeCents(), prices) - groupDiscount - promoDiscount;
         order.closeForHolds();
-        Payment payment = payments.save(new Payment(order, amount, PaymentStatus.PENDING, now));
+        Payment payment = payments.save(new Payment(order, amount, PaymentStatus.PENDING, now, applied));
         entityManager.flush();
         return payment.getId();
+    }
+
+    private PromoCode appliedPromo(PromoCode attached, long customerId) {
+        if (attached == null) {
+            return null;
+        }
+        entityManager.lock(attached, LockModeType.PESSIMISTIC_WRITE);
+        long taken = payments.countTaken(attached.getId());
+        long takenByCustomer = payments.countTakenByCustomer(attached.getId(), customerId);
+        if (taken >= attached.getGlobalLimit() || takenByCustomer >= attached.getPerCustomerLimit()) {
+            return null;
+        }
+        return attached;
     }
 
     private static boolean liveHolds(List<EventSeat> holds, List<Long> seatIds, Instant now) {

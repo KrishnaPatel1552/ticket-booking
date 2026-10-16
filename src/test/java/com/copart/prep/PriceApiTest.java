@@ -2,9 +2,15 @@ package com.copart.prep;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.copart.prep.checkout.PausingPaymentAttemptGate;
 import com.fasterxml.jackson.databind.JsonNode;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +30,9 @@ class PriceApiTest {
 
     @Autowired
     private TestRestTemplate rest;
+
+    @Autowired
+    private PausingPaymentAttemptGate paymentGate;
 
     @Test
     void twoSeatsInsideTheEarlyBirdWindowPriceAtTheEarlyBirdPricePlusTheFee() {
@@ -218,6 +227,182 @@ class PriceApiTest {
         assertThat(checkedOut.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(ada.get("/api/orders/" + orderId).getBody().get("payment").get("amountCents").asInt())
                 .isEqualTo(19100);
+    }
+
+    @Test
+    void aPromoCodeWithNoUseLeftIsSkippedAndCheckoutStillSucceeds() {
+        ApiSession admin = signIn("admin@example.com");
+        String code = createPromo(admin, 200, 1, 1, false);
+        long eventId = createPlainEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        long adaOrder = holdAttachAndCheckout(ada, eventId, "A1", code, "success");
+        assertThat(amount(ada, adaOrder)).isEqualTo(4900);
+
+        long graceOrder = holdAttachAndCheckout(grace, eventId, "A2", code, "success");
+
+        assertThat(amount(grace, graceOrder)).isEqualTo(5100);
+        assertThat(grace.get("/api/orders/" + graceOrder).getBody().get("payment").get("status").asText())
+                .isEqualTo("succeeded");
+        assertThat(grace.get("/api/orders/" + graceOrder).getBody().get("promoCode").asText()).isEqualTo(code);
+    }
+
+    @Test
+    void aDeclinedPaymentDoesNotConsumeThePromoUse() {
+        ApiSession admin = signIn("admin@example.com");
+        String code = createPromo(admin, 200, 1, 1, false);
+        long eventId = createPlainEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        long adaOrder = holdAttachAndCheckout(ada, eventId, "A1", code, "decline");
+        assertThat(ada.get("/api/orders/" + adaOrder).getBody().get("payment").get("status").asText())
+                .isEqualTo("declined");
+        assertThat(amount(ada, adaOrder)).isEqualTo(4900);
+
+        long graceOrder = holdAttachAndCheckout(grace, eventId, "A1", code, "success");
+
+        assertThat(amount(grace, graceOrder)).isEqualTo(4900);
+        assertThat(grace.get("/api/orders/" + graceOrder).getBody().get("payment").get("status").asText())
+                .isEqualTo("succeeded");
+    }
+
+    @Test
+    void anUnknownPaymentCountsAsATakenPromoUse() {
+        ApiSession admin = signIn("admin@example.com");
+        String code = createPromo(admin, 200, 1, 1, false);
+        long eventId = createPlainEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        long adaOrder = holdAttachAndCheckout(ada, eventId, "A1", code, "timeout");
+        assertThat(ada.get("/api/orders/" + adaOrder).getBody().get("payment").get("status").asText())
+                .isEqualTo("unknown");
+
+        long graceOrder = holdAttachAndCheckout(grace, eventId, "A2", code, "success");
+
+        assertThat(amount(grace, graceOrder)).isEqualTo(5100);
+    }
+
+    @Test
+    void aPendingPaymentCountsAsATakenPromoUse() throws Exception {
+        ApiSession admin = signIn("admin@example.com");
+        String code = createPromo(admin, 200, 1, 1, false);
+        long eventId = createPlainEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(a1)));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long adaOrder = held.getBody().get("orderId").asLong();
+        assertThat(ada.post("/api/orders/" + adaOrder + "/promo-code", java.util.Map.of("code", code)).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        paymentGate.arm();
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<ResponseEntity<JsonNode>> checkout = pool.submit(() -> ada.post(
+                    "/api/orders/" + adaOrder + "/checkout",
+                    java.util.Map.of("seatIds", List.of(a1), "mock", "success")));
+            assertThat(paymentGate.awaitArrival(Duration.ofSeconds(10))).isTrue();
+            long graceOrder = holdAttachAndCheckout(grace, eventId, "A2", code, "success");
+            assertThat(amount(grace, graceOrder)).isEqualTo(5100);
+            assertThat(ada.get("/api/orders/" + adaOrder).getBody().get("payment").get("status").asText())
+                    .isEqualTo("pending");
+            paymentGate.release();
+            assertThat(checkout.get(15, TimeUnit.SECONDS).getStatusCode()).isEqualTo(HttpStatus.OK);
+        } finally {
+            paymentGate.release();
+            pool.shutdownNow();
+        }
+
+        assertThat(amount(ada, adaOrder)).isEqualTo(4900);
+    }
+
+    @Test
+    void thePerCustomerLimitStopsASecondOrderFromTheSameCustomer() {
+        ApiSession admin = signIn("admin@example.com");
+        String code = createPromo(admin, 200, 5, 1, false);
+        long eventId = createPlainEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        long first = holdAttachAndCheckout(ada, eventId, "A1", code, "success");
+        assertThat(amount(ada, first)).isEqualTo(4900);
+
+        long second = holdAttachAndCheckout(ada, eventId, "A2", code, "success");
+        long graceOrder = holdAttachAndCheckout(grace, eventId, "A3", code, "success");
+
+        assertThat(amount(ada, second)).isEqualTo(5100);
+        assertThat(amount(grace, graceOrder)).isEqualTo(4900);
+    }
+
+    @Test
+    void aPromoDiscountStopsAtTheTicketTotalAndLeavesTheServiceFee() {
+        ApiSession admin = signIn("admin@example.com");
+        String code = createPromo(admin, 9000, 5, 2, false);
+        long eventId = createPlainEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        long orderId = holdAttachAndCheckout(ada, eventId, "A1", code, "success");
+
+        assertThat(amount(ada, orderId)).isEqualTo(100);
+    }
+
+    @Test
+    void aUsedUpExclusiveCodeIsSkippedAndEarlyBirdAndTheGroupRateStand() {
+        ApiSession admin = signIn("admin@example.com");
+        String code = createPromo(admin, 1000, 1, 1, true);
+        long eventId = createEvent(admin, "2026-10-01T00:00:00Z", "2026-11-15T00:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        List<Long> adaSeats = List.of(
+                seatId(opened, "A1"), seatId(opened, "A2"), seatId(opened, "A3"), seatId(opened, "A4"));
+        List<Long> graceSeats = List.of(
+                seatId(opened, "A5"), seatId(opened, "A6"), seatId(opened, "A7"), seatId(opened, "A8"));
+        ResponseEntity<JsonNode> adaHeld = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", adaSeats));
+        assertThat(adaHeld.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long adaOrder = adaHeld.getBody().get("orderId").asLong();
+        assertThat(ada.post("/api/orders/" + adaOrder + "/promo-code", java.util.Map.of("code", code)).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(ada.post("/api/orders/" + adaOrder + "/checkout", java.util.Map.of(
+                "seatIds", adaSeats, "mock", "success")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(amount(ada, adaOrder)).isEqualTo(19100);
+
+        ResponseEntity<JsonNode> graceHeld = grace.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", graceSeats));
+        assertThat(graceHeld.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long graceOrder = graceHeld.getBody().get("orderId").asLong();
+        assertThat(grace.post("/api/orders/" + graceOrder + "/promo-code", java.util.Map.of("code", code)).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(grace.post("/api/orders/" + graceOrder + "/checkout", java.util.Map.of(
+                "seatIds", graceSeats, "mock", "success")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        assertThat(amount(grace, graceOrder)).isEqualTo(15600);
+        assertThat(grace.get("/api/orders/" + graceOrder).getBody().get("payment").get("status").asText())
+                .isEqualTo("succeeded");
+    }
+
+    private long holdAttachAndCheckout(ApiSession customer, long eventId, String label, String code, String mock) {
+        JsonNode opened = customer.get("/api/events/" + eventId).getBody();
+        long seat = seatId(opened, label);
+        ResponseEntity<JsonNode> held = customer.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(seat)));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+        assertThat(customer.post("/api/orders/" + orderId + "/promo-code", java.util.Map.of("code", code)).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        ResponseEntity<JsonNode> checkedOut = customer.post("/api/orders/" + orderId + "/checkout", java.util.Map.of(
+                "seatIds", List.of(seat),
+                "mock", mock));
+        assertThat(checkedOut.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return orderId;
+    }
+
+    private static int amount(ApiSession customer, long orderId) {
+        return customer.get("/api/orders/" + orderId).getBody().get("payment").get("amountCents").asInt();
     }
 
     private String createPromo(ApiSession admin, int discountCents, int globalLimit, int perCustomerLimit, boolean exclusive) {

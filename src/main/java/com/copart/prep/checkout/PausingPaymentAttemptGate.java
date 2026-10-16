@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
@@ -12,10 +13,12 @@ import org.springframework.stereotype.Component;
 public class PausingPaymentAttemptGate implements PaymentAttemptGate {
 
     private final AtomicBoolean armed = new AtomicBoolean(false);
+    private final AtomicInteger arrivals = new AtomicInteger();
     private volatile CountDownLatch arrived = new CountDownLatch(1);
     private volatile CountDownLatch release = new CountDownLatch(1);
 
     public void arm() {
+        arrivals.set(0);
         arrived = new CountDownLatch(1);
         release = new CountDownLatch(1);
         armed.set(true);
@@ -33,6 +36,9 @@ public class PausingPaymentAttemptGate implements PaymentAttemptGate {
     @Override
     public void beforeCharge() {
         if (!armed.get()) {
+            return;
+        }
+        if (arrivals.incrementAndGet() != 1) {
             return;
         }
         CountDownLatch toRelease = release;

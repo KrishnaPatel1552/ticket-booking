@@ -36,4 +36,29 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
             where payment.order.id = :orderId
             """)
     boolean existsForOrder(@Param("orderId") long orderId);
+
+    @Query("""
+            select count(payment)
+            from Payment payment
+            where payment.promoCode.id = :promoCodeId
+              and payment.status in (
+                com.copart.prep.payment.PaymentStatus.PENDING,
+                com.copart.prep.payment.PaymentStatus.UNKNOWN,
+                com.copart.prep.payment.PaymentStatus.SUCCEEDED
+              )
+            """)
+    long countTaken(@Param("promoCodeId") long promoCodeId);
+
+    @Query("""
+            select count(payment)
+            from Payment payment
+            where payment.promoCode.id = :promoCodeId
+              and payment.order.customer.id = :customerId
+              and payment.status in (
+                com.copart.prep.payment.PaymentStatus.PENDING,
+                com.copart.prep.payment.PaymentStatus.UNKNOWN,
+                com.copart.prep.payment.PaymentStatus.SUCCEEDED
+              )
+            """)
+    long countTakenByCustomer(@Param("promoCodeId") long promoCodeId, @Param("customerId") long customerId);
 }

@@ -1,6 +1,7 @@
 package com.copart.prep.payment;
 
 import com.copart.prep.hold.CustomerOrder;
+import com.copart.prep.promo.PromoCode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -10,6 +11,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
@@ -36,14 +38,24 @@ public class Payment {
     @Column(nullable = false)
     private Instant createdAt;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "promo_code_id")
+    private PromoCode promoCode;
+
     protected Payment() {
     }
 
-    public Payment(CustomerOrder order, int amountCents, PaymentStatus status, Instant createdAt) {
+    public Payment(
+            CustomerOrder order,
+            int amountCents,
+            PaymentStatus status,
+            Instant createdAt,
+            PromoCode promoCode) {
         this.order = order;
         this.amountCents = amountCents;
         this.status = status;
         this.createdAt = createdAt;
+        this.promoCode = promoCode;
     }
 
     public Long getId() {
