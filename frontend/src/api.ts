@@ -68,3 +68,15 @@ export async function fetchSeatMap(eventId: number): Promise<EventSeatMap> {
   });
   return readJson<EventSeatMap>(response);
 }
+
+export async function holdSeats(eventId: number, seatIds: number[]): Promise<void> {
+  const response = await fetch(`/api/events/${eventId}/holds`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ seatIds }),
+  });
+  if (!response.ok) {
+    throw new Error(String(response.status));
+  }
+}
