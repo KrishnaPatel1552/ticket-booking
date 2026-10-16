@@ -1,6 +1,7 @@
 package com.copart.prep.checkout;
 
 import com.copart.prep.clock.AppClock;
+import com.copart.prep.event.Event;
 import com.copart.prep.hold.CustomerOrder;
 import com.copart.prep.hold.CustomerOrderRepository;
 import com.copart.prep.hold.EventSeat;
@@ -9,6 +10,7 @@ import com.copart.prep.hold.EventSeatRepository;
 import com.copart.prep.payment.Payment;
 import com.copart.prep.payment.PaymentRepository;
 import com.copart.prep.payment.PaymentStatus;
+import com.copart.prep.pricetier.PriceTier;
 import com.copart.prep.saleterms.SaleTerms;
 import com.copart.prep.saleterms.SaleTermsRepository;
 import com.copart.prep.signin.Account;
@@ -71,7 +73,7 @@ public class RecordPendingPayment {
         }
         List<Integer> prices = new ArrayList<>();
         for (EventSeat hold : holds) {
-            prices.add(hold.getSeat().getPriceTier().getPriceCents());
+            prices.add(startingPriceCents(hold, now));
         }
         int amount = OrderAmount.cents(serviceFeeCents(), prices);
         order.closeForHolds();
@@ -90,6 +92,21 @@ public class RecordPendingPayment {
             }
         }
         return true;
+    }
+
+    private static int startingPriceCents(EventSeat hold, Instant now) {
+        PriceTier tier = hold.getSeat().getPriceTier();
+        Event event = hold.getEvent();
+        Integer earlyBirdPriceCents = tier.getEarlyBirdPriceCents();
+        Instant startsAt = event.getEarlyBirdStartsAt();
+        Instant endsAt = event.getEarlyBirdEndsAt();
+        if (earlyBirdPriceCents == null || startsAt == null || endsAt == null) {
+            return tier.getPriceCents();
+        }
+        if (!now.isBefore(startsAt) && now.isBefore(endsAt)) {
+            return earlyBirdPriceCents;
+        }
+        return tier.getPriceCents();
     }
 
     private int serviceFeeCents() {

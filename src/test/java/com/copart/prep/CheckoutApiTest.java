@@ -208,7 +208,7 @@ class CheckoutApiTest {
     }
 
     @Test
-    void checkoutUsesThePriceTierPlusTheServiceFeeInsideTheEarlyBirdWindow() {
+    void checkoutInsideTheEarlyBirdWindowUsesTheEarlyBirdPricePlusTheFee() {
         ApiSession admin = signIn("admin@example.com");
         long venueId = admin.get("/api/events?name=lights").getBody().get(0).get("venueId").asLong();
         String name = "EarlyBirdCheckout-" + UUID.randomUUID();
@@ -239,7 +239,7 @@ class CheckoutApiTest {
 
         assertThat(checkedOut.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(ada.get("/api/orders/" + orderId).getBody().get("payment").get("amountCents").asInt())
-                .isEqualTo(5100);
+                .isEqualTo(4100);
     }
 
     @Test
