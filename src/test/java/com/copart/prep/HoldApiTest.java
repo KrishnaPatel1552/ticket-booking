@@ -277,6 +277,39 @@ class HoldApiTest {
         assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("held");
     }
 
+    @Test
+    void openingTheEventAfterTenMinutesKeepsAHoldThatHasAPayment() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        ResponseEntity<JsonNode> moved = ada.post("/api/test/clock", java.util.Map.of(
+                "instant", "2032-06-01T15:00:00Z"));
+        assertThat(moved.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(seatId(opened, "A1"))));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        insertPayment(held.getBody().get("orderId").asLong());
+
+        ResponseEntity<JsonNode> expired = ada.post("/api/test/clock", java.util.Map.of(
+                "instant", "2032-06-01T15:10:00Z"));
+        assertThat(expired.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("held");
+    }
+
+    private void insertPayment(long orderId) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(
+                        "insert into payment (order_id, amount_cents, status, created_at) values (?, ?, 'PENDING', ?)")) {
+            statement.setLong(1, orderId);
+            statement.setInt(2, 5000);
+            statement.setTimestamp(3, Timestamp.from(Instant.parse("2032-06-01T15:00:00Z")));
+            statement.executeUpdate();
+        } catch (SQLException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
     private void awaitSecondDatabaseSessionWaitingOnALock() throws SQLException, InterruptedException {
         long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
         while (System.nanoTime() < deadline) {

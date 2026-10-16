@@ -37,6 +37,11 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
               and claim.active = true
               and claim.kind = :kind
               and claim.heldUntil <= :now
+              and not exists (
+                  select payment.id
+                  from Payment payment
+                  where payment.order = claim.order
+              )
             """)
     List<EventSeat> lockExpiredHolds(
             @Param("eventId") long eventId,
