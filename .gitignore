@@ -1,2 +1,5 @@
 # Personal source documents. The project record is the markdown, not these files.
 /*.pdf
+
+# Implementer worktrees. Never commit their contents.
+.worktrees/
