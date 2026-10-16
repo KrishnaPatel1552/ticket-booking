@@ -45,6 +45,31 @@ class HoldApiTest {
         assertThat(seatState(after, "B1")).isEqualTo("free");
     }
 
+    @Test
+    void requestForSevenSeatsWritesNoHolds() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        JsonNode before = ada.get("/api/events/" + eventId).getBody();
+        List<Long> seven = List.of(
+                seatId(before, "A1"),
+                seatId(before, "A2"),
+                seatId(before, "A3"),
+                seatId(before, "A4"),
+                seatId(before, "A5"),
+                seatId(before, "A6"),
+                seatId(before, "A7"));
+
+        ResponseEntity<JsonNode> refused = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", seven));
+
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode after = ada.get("/api/events/" + eventId).getBody();
+        for (String label : List.of("A1", "A2", "A3", "A4", "A5", "A6", "A7")) {
+            assertThat(seatState(after, label)).isEqualTo("free");
+        }
+    }
+
     private long createEvent(ApiSession admin) {
         long venueId = admin.get("/api/events?name=lights").getBody().get(0).get("venueId").asLong();
         String name = "HoldNight-" + UUID.randomUUID();

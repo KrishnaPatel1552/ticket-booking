@@ -21,6 +21,8 @@ import org.springframework.web.server.ResponseStatusException;
 public class HoldSeats {
 
     private static final Duration HOLD_FOR = Duration.ofMinutes(10);
+    private static final int ORDER_CAP = 6;
+    private static final int EVENT_CAP = 12;
 
     private final AccountRepository accounts;
     private final EventRepository events;
@@ -61,7 +63,16 @@ public class HoldSeats {
         }
         Instant now = clock.now();
         CustomerOrder order = orders.findByCustomerIdAndEventIdAndOpenForHoldsTrue(customer.getId(), event.getId())
-                .orElseGet(() -> orders.save(new CustomerOrder(customer, event, now)));
+                .orElse(null);
+        long onOrder = order == null ? 0 : eventSeats.countActiveOnOrder(order.getId());
+        long atEvent = eventSeats.countActiveForCustomerAtEvent(customer.getId(), event.getId());
+        long remaining = Math.min(ORDER_CAP - onOrder, EVENT_CAP - atEvent);
+        if (seatIds.size() > remaining) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT);
+        }
+        if (order == null) {
+            order = orders.save(new CustomerOrder(customer, event, now));
+        }
         Instant heldUntil = now.plus(HOLD_FOR);
         for (Seat seat : chosen) {
             eventSeats.save(new EventSeat(order, event, seat, EventSeatKind.HOLD, heldUntil));
