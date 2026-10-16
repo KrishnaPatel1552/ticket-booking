@@ -1,6 +1,7 @@
 package com.copart.prep.hold;
 
 import com.copart.prep.event.Event;
+import com.copart.prep.promo.PromoCode;
 import com.copart.prep.signin.Account;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -8,6 +9,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
@@ -31,6 +33,10 @@ public class CustomerOrder {
 
     @Column(nullable = false)
     private boolean openForHolds;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "promo_code_id")
+    private PromoCode promoCode;
 
     protected CustomerOrder() {
     }
@@ -64,5 +70,13 @@ public class CustomerOrder {
 
     public void closeForHolds() {
         this.openForHolds = false;
+    }
+
+    public PromoCode getPromoCode() {
+        return promoCode;
+    }
+
+    public void attachPromoCode(PromoCode promoCode) {
+        this.promoCode = promoCode;
     }
 }

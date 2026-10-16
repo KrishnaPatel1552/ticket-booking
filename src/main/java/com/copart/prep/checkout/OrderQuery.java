@@ -51,7 +51,8 @@ public class OrderQuery {
         PaymentView paymentView = payment == null
                 ? null
                 : new PaymentView(statusWire(payment.getStatus()), payment.getAmountCents());
-        return new OrderView(order.getId(), order.getEvent().getId(), paymentView, tickets);
+        String promoCode = order.getPromoCode() == null ? null : order.getPromoCode().getCode();
+        return new OrderView(order.getId(), order.getEvent().getId(), promoCode, paymentView, tickets);
     }
 
     private static String statusWire(PaymentStatus status) {

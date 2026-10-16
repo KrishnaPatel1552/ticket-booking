@@ -1,5 +1,7 @@
 package com.copart.prep.checkout;
 
+import com.copart.prep.promo.AttachPromoCode;
+import com.copart.prep.promo.AttachPromoCodeRequest;
 import jakarta.validation.Valid;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,16 +18,24 @@ public class CheckoutController {
     private final OrderQuery orders;
     private final ReconcilePayment reconcilePayment;
     private final PaymentScript script;
+    private final AttachPromoCode attachPromoCode;
 
     public CheckoutController(
             Checkout checkout,
             OrderQuery orders,
             ReconcilePayment reconcilePayment,
-            PaymentScript script) {
+            PaymentScript script,
+            AttachPromoCode attachPromoCode) {
         this.checkout = checkout;
         this.orders = orders;
         this.reconcilePayment = reconcilePayment;
         this.script = script;
+        this.attachPromoCode = attachPromoCode;
+    }
+
+    @PostMapping("/api/orders/{orderId}/promo-code")
+    public OrderView attachPromo(@PathVariable long orderId, @Valid @RequestBody AttachPromoCodeRequest request) {
+        return attachPromoCode.attach(orderId, request.code(), signedInEmail());
     }
 
     @PostMapping("/api/orders/{orderId}/checkout")

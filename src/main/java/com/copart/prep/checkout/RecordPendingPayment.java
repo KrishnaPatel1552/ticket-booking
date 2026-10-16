@@ -11,6 +11,7 @@ import com.copart.prep.payment.Payment;
 import com.copart.prep.payment.PaymentRepository;
 import com.copart.prep.payment.PaymentStatus;
 import com.copart.prep.pricetier.PriceTier;
+import com.copart.prep.promo.PromoCode;
 import com.copart.prep.saleterms.SaleTerms;
 import com.copart.prep.saleterms.SaleTermsRepository;
 import com.copart.prep.signin.Account;
@@ -76,7 +77,9 @@ public class RecordPendingPayment {
         for (EventSeat hold : holds) {
             prices.add(startingPriceCents(hold, now));
         }
-        int amount = OrderAmount.cents(terms.getServiceFeeCents(), prices) - groupDiscountCents(terms, prices);
+        int groupDiscount = groupDiscountCents(terms, prices);
+        int promoDiscount = promoDiscountCents(order.getPromoCode(), prices, groupDiscount);
+        int amount = OrderAmount.cents(terms.getServiceFeeCents(), prices) - groupDiscount - promoDiscount;
         order.closeForHolds();
         Payment payment = payments.save(new Payment(order, amount, PaymentStatus.PENDING, now));
         entityManager.flush();
@@ -119,6 +122,18 @@ public class RecordPendingPayment {
             ticketTotal += startingPrice;
         }
         return Math.min(terms.getGroupRateAmountCents(), ticketTotal);
+    }
+
+    private static int promoDiscountCents(PromoCode promoCode, List<Integer> startingPrices, int groupDiscount) {
+        if (promoCode == null) {
+            return 0;
+        }
+        int afterGroup = 0;
+        for (int startingPrice : startingPrices) {
+            afterGroup += startingPrice;
+        }
+        afterGroup -= groupDiscount;
+        return Math.min(promoCode.getDiscountCents(), Math.max(afterGroup, 0));
     }
 
     private SaleTerms saleTerms() {
