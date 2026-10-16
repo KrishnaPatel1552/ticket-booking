@@ -246,6 +246,19 @@ class CustomerApiTest {
         assertThat(match.get("earlyBirdPriceCents").isNull()).isTrue();
     }
 
+    @Test
+    void testClockMovesTheServerClock() {
+        ApiSession admin = signIn("admin@example.com");
+
+        ResponseEntity<JsonNode> moved = admin.post("/api/test/clock", java.util.Map.of(
+                "instant", "2030-01-15T12:00:00Z"));
+        assertThat(moved.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<JsonNode> read = admin.get("/api/test/clock");
+        assertThat(read.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(read.getBody().get("instant").asText()).isEqualTo("2030-01-15T12:00:00Z");
+    }
+
     private static JsonNode findNamed(JsonNode events, String name) {
         for (JsonNode event : events) {
             if (name.equals(event.get("name").asText())) {
