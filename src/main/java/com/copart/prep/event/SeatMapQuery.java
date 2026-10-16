@@ -1,8 +1,14 @@
 package com.copart.prep.event;
 
+import com.copart.prep.hold.EventSeat;
+import com.copart.prep.hold.EventSeatKind;
+import com.copart.prep.hold.EventSeatRepository;
+import com.copart.prep.venue.Seat;
 import com.copart.prep.venue.SeatRepository;
 import com.copart.prep.venue.SectionRepository;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,17 +20,25 @@ public class SeatMapQuery {
     private final EventRepository events;
     private final SectionRepository sections;
     private final SeatRepository seats;
+    private final EventSeatRepository eventSeats;
 
-    public SeatMapQuery(EventRepository events, SectionRepository sections, SeatRepository seats) {
+    public SeatMapQuery(
+            EventRepository events,
+            SectionRepository sections,
+            SeatRepository seats,
+            EventSeatRepository eventSeats) {
         this.events = events;
         this.sections = sections;
         this.seats = seats;
+        this.eventSeats = eventSeats;
     }
 
     @Transactional(readOnly = true)
     public EventSeatMap open(long eventId) {
         Event event = events.findById(eventId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        Map<Long, EventSeatKind> active = eventSeats.findByEventIdAndActiveTrue(event.getId()).stream()
+                .collect(Collectors.toMap(claim -> claim.getSeat().getId(), EventSeat::getKind));
         List<SectionSeats> sectionMaps = sections.findByVenueIdOrderByIdAsc(event.getVenue().getId()).stream()
                 .map(section -> new SectionSeats(
                         section.getName(),
@@ -34,7 +48,7 @@ public class SeatMapQuery {
                                         seat.getLabel(),
                                         seat.getPriceTier().getPriceCents(),
                                         seat.getPriceTier().getEarlyBirdPriceCents(),
-                                        SeatState.FREE))
+                                        stateOf(seat, active)))
                                 .toList()))
                 .toList();
         return new EventSeatMap(
@@ -47,5 +61,13 @@ public class SeatMapQuery {
                 event.getEarlyBirdStartsAt(),
                 event.getEarlyBirdEndsAt(),
                 sectionMaps);
+    }
+
+    private static SeatState stateOf(Seat seat, Map<Long, EventSeatKind> active) {
+        EventSeatKind kind = active.get(seat.getId());
+        if (kind == null) {
+            return SeatState.FREE;
+        }
+        return kind.seatState();
     }
 }
