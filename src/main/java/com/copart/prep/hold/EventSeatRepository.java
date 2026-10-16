@@ -15,6 +15,27 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
 
     Optional<EventSeat> findByEventIdAndSeatIdAndActiveTrue(Long eventId, Long seatId);
 
+    List<EventSeat> findByOrderIdAndActiveTrueAndKind(Long orderId, EventSeatKind kind);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select claim
+            from EventSeat claim
+            where claim.order.id = :orderId
+              and claim.active = true
+              and claim.seat.id in :seatIds
+            """)
+    List<EventSeat> lockActiveForSeats(@Param("orderId") long orderId, @Param("seatIds") List<Long> seatIds);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select claim
+            from EventSeat claim
+            where claim.order.id = :orderId
+              and claim.active = true
+            """)
+    List<EventSeat> lockActiveOnOrder(@Param("orderId") long orderId);
+
     @Query("""
             select count(claim)
             from EventSeat claim

@@ -85,4 +85,8 @@ public class EventSeat {
     public void release() {
         this.active = false;
     }
+
+    public void becomeTicket() {
+        this.kind = EventSeatKind.TICKET;
+    }
 }

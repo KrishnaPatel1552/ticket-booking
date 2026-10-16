@@ -65,4 +65,8 @@ public class Payment {
     public Instant getCreatedAt() {
         return createdAt;
     }
+
+    public void mark(PaymentStatus status) {
+        this.status = status;
+    }
 }
