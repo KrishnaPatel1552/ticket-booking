@@ -86,6 +86,22 @@ class CustomerApiTest {
         assertThat(me.getBody().get("role").asText()).isEqualTo("admin");
     }
 
+    @Test
+    void customerIsRefusedOnAnAdminEndpoint() {
+        ApiSession session = new ApiSession();
+        ResponseEntity<JsonNode> signIn = session.post("/api/sign-in", java.util.Map.of(
+                "email", "ada@example.com",
+                "password", "password"));
+        assertThat(signIn.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<JsonNode> refused = session.post("/api/admin/events", java.util.Map.of(
+                "name", "Should Not Exist",
+                "startsAt", "2026-12-20T01:00:00Z",
+                "timeZone", "America/New_York"));
+
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
     private final class ApiSession {
         private String cookieHeader = "";
 
