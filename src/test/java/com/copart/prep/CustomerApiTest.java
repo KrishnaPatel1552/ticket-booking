@@ -102,6 +102,31 @@ class CustomerApiTest {
         assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
+    @Test
+    void searchByNameReturnsTheStarterEvent() {
+        ApiSession ada = signIn("ada@example.com");
+
+        ResponseEntity<JsonNode> response = ada.get("/api/events?name=lights");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode matches = response.getBody();
+        assertThat(matches.isArray()).isTrue();
+        assertThat(matches).hasSize(1);
+        assertThat(matches.get(0).get("name").asText()).isEqualTo("Harbor Lights");
+        assertThat(matches.get(0).get("venueName").asText()).isEqualTo("Harbor Hall");
+        assertThat(matches.get(0).get("startsAt").asText()).isEqualTo("2026-12-15T01:00:00Z");
+        assertThat(matches.get(0).get("timeZone").asText()).isEqualTo("America/New_York");
+    }
+
+    private ApiSession signIn(String email) {
+        ApiSession session = new ApiSession();
+        ResponseEntity<JsonNode> response = session.post("/api/sign-in", java.util.Map.of(
+                "email", email,
+                "password", "password"));
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return session;
+    }
+
     private final class ApiSession {
         private String cookieHeader = "";
 

@@ -1,8 +1,13 @@
 package com.copart.prep.starter;
 
+import com.copart.prep.event.Event;
+import com.copart.prep.event.EventRepository;
 import com.copart.prep.signin.Account;
 import com.copart.prep.signin.AccountRepository;
 import com.copart.prep.signin.AccountRole;
+import com.copart.prep.venue.Venue;
+import com.copart.prep.venue.VenueRepository;
+import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -17,10 +22,18 @@ public class StarterData implements ApplicationRunner {
 
     private final AccountRepository accounts;
     private final PasswordEncoder passwordEncoder;
+    private final VenueRepository venues;
+    private final EventRepository events;
 
-    public StarterData(AccountRepository accounts, PasswordEncoder passwordEncoder) {
+    public StarterData(
+            AccountRepository accounts,
+            PasswordEncoder passwordEncoder,
+            VenueRepository venues,
+            EventRepository events) {
         this.accounts = accounts;
         this.passwordEncoder = passwordEncoder;
+        this.venues = venues;
+        this.events = events;
     }
 
     @Override
@@ -28,6 +41,22 @@ public class StarterData implements ApplicationRunner {
         seedAccount("ada@example.com", AccountRole.CUSTOMER);
         seedAccount("grace@example.com", AccountRole.CUSTOMER);
         seedAccount("admin@example.com", AccountRole.ADMIN);
+        seedVenueAndEvent();
+    }
+
+    private void seedVenueAndEvent() {
+        if (events.count() > 0) {
+            return;
+        }
+        Venue venue = venues.save(new Venue("Harbor Hall", "America/New_York"));
+        events.save(new Event(
+                venue,
+                "Harbor Lights",
+                Instant.parse("2026-12-15T01:00:00Z"),
+                "America/New_York",
+                Instant.parse("2026-10-01T00:00:00Z"),
+                Instant.parse("2026-11-15T00:00:00Z")));
+        logger.info("Seeded venue {} and event Harbor Lights", venue.getName());
     }
 
     private void seedAccount(String email, AccountRole role) {
