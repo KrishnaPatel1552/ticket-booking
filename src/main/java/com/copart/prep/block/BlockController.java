@@ -1,5 +1,6 @@
 package com.copart.prep.block;
 
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -19,7 +20,7 @@ public class BlockController {
             @PathVariable long eventId,
             @PathVariable long seatId,
             @RequestBody OverrideReason request) {
-        blockSeat.block(eventId, seatId, request.reason());
+        blockSeat.block(eventId, seatId, request.reason(), signedInEmail());
     }
 
     @PostMapping("/api/admin/events/{eventId}/seats/{seatId}/release")
@@ -27,6 +28,10 @@ public class BlockController {
             @PathVariable long eventId,
             @PathVariable long seatId,
             @RequestBody OverrideReason request) {
-        blockSeat.release(eventId, seatId, request.reason());
+        blockSeat.release(eventId, seatId, request.reason(), signedInEmail());
+    }
+
+    private static String signedInEmail() {
+        return SecurityContextHolder.getContext().getAuthentication().getName();
     }
 }

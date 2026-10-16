@@ -64,6 +64,31 @@ class BlockApiTest {
         assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("free");
     }
 
+    @Test
+    void blockingAndReleasingEachLeaveAnAuditEntryTheAdminCanRead() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        JsonNode opened = admin.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+
+        assertThat(admin.post(
+                "/api/admin/events/" + eventId + "/seats/" + a1 + "/block",
+                java.util.Map.of("reason", "Artist hold")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(admin.post(
+                "/api/admin/events/" + eventId + "/seats/" + a1 + "/release",
+                java.util.Map.of("reason", "Artist is seated")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<JsonNode> entries = admin.get("/api/admin/events/" + eventId + "/audit-entries");
+        assertThat(entries.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(entries.getBody()).hasSize(2);
+        assertThat(entries.getBody().get(0).get("kind").asText()).isEqualTo("block");
+        assertThat(entries.getBody().get(0).get("reason").asText()).isEqualTo("Artist hold");
+        assertThat(entries.getBody().get(0).get("seatId").asLong()).isEqualTo(a1);
+        assertThat(entries.getBody().get(1).get("kind").asText()).isEqualTo("release");
+        assertThat(entries.getBody().get(1).get("reason").asText()).isEqualTo("Artist is seated");
+        assertThat(entries.getBody().get(1).get("seatId").asLong()).isEqualTo(a1);
+    }
+
     private long createEvent(ApiSession admin) {
         long venueId = admin.get("/api/events?name=lights").getBody().get(0).get("venueId").asLong();
         String name = "BlockNight-" + UUID.randomUUID();
