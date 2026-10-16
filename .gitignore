@@ -3,3 +3,7 @@
 
 # Implementer worktrees. Never commit their contents.
 .worktrees/
+
+target/
+frontend/node_modules/
+frontend/dist/

@@ -1,0 +1,4 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/copart_prep_test
+    username: krishna
