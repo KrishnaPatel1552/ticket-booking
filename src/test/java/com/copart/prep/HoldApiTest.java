@@ -70,6 +70,39 @@ class HoldApiTest {
         }
     }
 
+    @Test
+    void requestAboveTheSeatsLeftOnTheOrderWritesNothingAndOneSeatStillCanBeHeld() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        ResponseEntity<JsonNode> first = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(
+                        seatId(opened, "A1"),
+                        seatId(opened, "A2"),
+                        seatId(opened, "A3"),
+                        seatId(opened, "A4"),
+                        seatId(opened, "A5"))));
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<JsonNode> twoMore = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(seatId(opened, "A6"), seatId(opened, "A7"))));
+        assertThat(twoMore.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode afterTwo = ada.get("/api/events/" + eventId).getBody();
+        for (String label : List.of("A1", "A2", "A3", "A4", "A5")) {
+            assertThat(seatState(afterTwo, label)).isEqualTo("held");
+        }
+        assertThat(seatState(afterTwo, "A6")).isEqualTo("free");
+        assertThat(seatState(afterTwo, "A7")).isEqualTo("free");
+
+        ResponseEntity<JsonNode> oneMore = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(seatId(opened, "A6"))));
+        assertThat(oneMore.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode afterOne = ada.get("/api/events/" + eventId).getBody();
+        assertThat(seatState(afterOne, "A6")).isEqualTo("held");
+        assertThat(seatState(afterOne, "A7")).isEqualTo("free");
+    }
+
     private long createEvent(ApiSession admin) {
         long venueId = admin.get("/api/events?name=lights").getBody().get(0).get("venueId").asLong();
         String name = "HoldNight-" + UUID.randomUUID();
