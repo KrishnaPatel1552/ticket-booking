@@ -42,6 +42,20 @@ class CustomerApiTest {
         assertThat(me.getBody().get("role").asText()).isEqualTo("customer");
     }
 
+    @Test
+    void wrongPasswordLeavesCustomerSignedOut() {
+        ApiSession session = new ApiSession();
+
+        ResponseEntity<JsonNode> response = session.post("/api/sign-in", java.util.Map.of(
+                "email", "ada@example.com",
+                "password", "wrong-password"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        ResponseEntity<JsonNode> me = session.get("/api/me");
+        assertThat(me.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
     private final class ApiSession {
         private String cookieHeader = "";
 
