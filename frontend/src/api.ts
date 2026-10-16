@@ -87,6 +87,7 @@ export type TicketView = {
 export type OrderView = {
   id: number;
   eventId: number;
+  promoCode: string | null;
   payment: { status: PaymentStatus; amountCents: number } | null;
   tickets: TicketView[];
 };
@@ -99,6 +100,16 @@ export async function holdSeats(eventId: number, seatIds: number[]): Promise<Hel
     body: JSON.stringify({ seatIds }),
   });
   return readJson<HeldSeats>(response);
+}
+
+export async function attachPromoCode(orderId: number, code: string): Promise<OrderView> {
+  const response = await fetch(`/api/orders/${orderId}/promo-code`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ code }),
+  });
+  return readJson<OrderView>(response);
 }
 
 export async function checkout(orderId: number, seatIds: number[], mock: PaymentMock): Promise<void> {

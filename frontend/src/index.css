@@ -151,10 +151,16 @@ button:disabled {
   margin: 0;
 }
 
-.hold-bar select {
+.hold-bar select,
+.hold-bar input {
   padding: 0.55rem 0.65rem;
   border: 1px solid #b7a48c;
   background: #fff;
+}
+
+.hold-bar label {
+  display: grid;
+  gap: 0.35rem;
 }
 
 .seat {

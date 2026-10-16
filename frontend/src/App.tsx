@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import {
+  attachPromoCode,
   checkout,
   fetchOrder,
   fetchSeatMap,
@@ -92,6 +93,10 @@ export default function App() {
   const [orderId, setOrderId] = useState<number | null>(null);
   const [heldSeatIds, setHeldSeatIds] = useState<number[]>([]);
   const [mockResult, setMockResult] = useState<PaymentMock>("success");
+  const [promoCode, setPromoCode] = useState("");
+  const [attachedPromo, setAttachedPromo] = useState<string | null>(null);
+  const [applyingPromo, setApplyingPromo] = useState(false);
+  const [promoError, setPromoError] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [order, setOrder] = useState<OrderView | null>(null);
@@ -159,6 +164,9 @@ export default function App() {
     setOrderId(null);
     setHeldSeatIds([]);
     setOrder(null);
+    setPromoCode("");
+    setAttachedPromo(null);
+    setPromoError(null);
     await loadSeatMap(eventId);
   }
 
@@ -182,6 +190,11 @@ export default function App() {
     setHoldError(null);
     try {
       const held = await holdSeats(eventId, seatsToHold);
+      if (orderId !== held.orderId) {
+        setAttachedPromo(null);
+        setPromoCode("");
+        setPromoError(null);
+      }
       setOrderId(held.orderId);
       setHeldSeatIds((current) => (orderId === held.orderId ? [...current, ...seatsToHold] : [...seatsToHold]));
       setSelectedSeatIds([]);
@@ -190,6 +203,23 @@ export default function App() {
     } finally {
       await loadSeatMap(eventId);
       setHolding(false);
+    }
+  }
+
+  async function submitPromo() {
+    if (orderId == null || promoCode.trim() === "") {
+      return;
+    }
+    setApplyingPromo(true);
+    setPromoError(null);
+    try {
+      const attached = await attachPromoCode(orderId, promoCode.trim());
+      setAttachedPromo(attached.promoCode);
+      setPromoCode("");
+    } catch {
+      setPromoError("That promo code could not be attached.");
+    } finally {
+      setApplyingPromo(false);
     }
   }
 
@@ -296,6 +326,25 @@ export default function App() {
             </button>
             <p>{selectedSeatIds.length === 0 ? "Select free seats to hold." : `${selectedSeatIds.length} selected`}</p>
             {holdError != null ? <p className="error">{holdError}</p> : null}
+          </div>
+          <div className="hold-bar">
+            <label>
+              Promo code
+              <input
+                value={promoCode}
+                onChange={(event) => setPromoCode(event.target.value)}
+                disabled={applyingPromo || checkingOut || orderId == null}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => void submitPromo()}
+              disabled={applyingPromo || checkingOut || orderId == null || promoCode.trim() === ""}
+            >
+              {applyingPromo ? "Applying…" : "Apply promo code"}
+            </button>
+            {attachedPromo != null ? <p>Promo code {attachedPromo}</p> : null}
+            {promoError != null ? <p className="error">{promoError}</p> : null}
           </div>
           <div className="hold-bar">
             <label>
