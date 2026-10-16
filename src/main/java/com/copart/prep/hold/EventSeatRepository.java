@@ -3,6 +3,7 @@ package com.copart.prep.hold;
 import jakarta.persistence.LockModeType;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -11,6 +12,8 @@ import org.springframework.data.repository.query.Param;
 public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
 
     List<EventSeat> findByEventIdAndActiveTrue(Long eventId);
+
+    Optional<EventSeat> findByEventIdAndSeatIdAndActiveTrue(Long eventId, Long seatId);
 
     @Query("""
             select count(claim)

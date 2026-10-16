@@ -5,4 +5,6 @@ public interface HoldGate {
     void afterCustomerEventLock();
 
     void beforeWritingSeats();
+
+    void afterSeatLock();
 }

@@ -19,6 +19,10 @@ public class PausingHoldGate implements HoldGate {
     private final AtomicBoolean writersArmed = new AtomicBoolean(false);
     private volatile CountDownLatch writersArrived = new CountDownLatch(1);
     private volatile CountDownLatch writersRelease = new CountDownLatch(1);
+    private final AtomicBoolean seatLockArmed = new AtomicBoolean(false);
+    private final AtomicInteger seatLockArrivals = new AtomicInteger();
+    private volatile CountDownLatch seatLockArrived = new CountDownLatch(1);
+    private volatile CountDownLatch seatLockRelease = new CountDownLatch(1);
 
     public void arm() {
         arrivals.set(0);
@@ -51,6 +55,22 @@ public class PausingHoldGate implements HoldGate {
         writersRelease.countDown();
     }
 
+    public void armSeatLock() {
+        seatLockArrivals.set(0);
+        seatLockArrived = new CountDownLatch(1);
+        seatLockRelease = new CountDownLatch(1);
+        seatLockArmed.set(true);
+    }
+
+    public boolean awaitSeatLock(Duration timeout) throws InterruptedException {
+        return seatLockArrived.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    public void releaseSeatLock() {
+        seatLockArmed.set(false);
+        seatLockRelease.countDown();
+    }
+
     @Override
     public void afterCustomerEventLock() {
         if (!armed.get()) {
@@ -76,6 +96,24 @@ public class PausingHoldGate implements HoldGate {
         }
         CountDownLatch toRelease = writersRelease;
         writersArrived.countDown();
+        try {
+            toRelease.await();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    @Override
+    public void afterSeatLock() {
+        if (!seatLockArmed.get()) {
+            return;
+        }
+        if (seatLockArrivals.incrementAndGet() != 1) {
+            return;
+        }
+        CountDownLatch toRelease = seatLockRelease;
+        seatLockArrived.countDown();
         try {
             toRelease.await();
         } catch (InterruptedException exception) {

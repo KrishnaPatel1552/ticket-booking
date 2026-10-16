@@ -6,6 +6,8 @@ import com.copart.prep.audit.AuditKind;
 import com.copart.prep.clock.AppClock;
 import com.copart.prep.event.Event;
 import com.copart.prep.event.EventRepository;
+import com.copart.prep.hold.EventSeatRepository;
+import com.copart.prep.hold.HoldGate;
 import com.copart.prep.signin.Account;
 import com.copart.prep.signin.AccountRepository;
 import com.copart.prep.venue.Seat;
@@ -24,25 +26,31 @@ public class BlockSeat {
     private final AccountRepository accounts;
     private final EventRepository events;
     private final SeatRepository seats;
+    private final EventSeatRepository eventSeats;
     private final SeatBlockRepository seatBlocks;
     private final AuditEntryRepository auditEntries;
     private final SeatRowLock seatRowLock;
+    private final HoldGate holdGate;
     private final AppClock clock;
 
     public BlockSeat(
             AccountRepository accounts,
             EventRepository events,
             SeatRepository seats,
+            EventSeatRepository eventSeats,
             SeatBlockRepository seatBlocks,
             AuditEntryRepository auditEntries,
             SeatRowLock seatRowLock,
+            HoldGate holdGate,
             AppClock clock) {
         this.accounts = accounts;
         this.events = events;
         this.seats = seats;
+        this.eventSeats = eventSeats;
         this.seatBlocks = seatBlocks;
         this.auditEntries = auditEntries;
         this.seatRowLock = seatRowLock;
+        this.holdGate = holdGate;
         this.clock = clock;
     }
 
@@ -52,6 +60,11 @@ public class BlockSeat {
         Event event = event(eventId);
         Seat seat = seatAtEvent(seatId, event);
         seatRowLock.lockInIdOrder(List.of(seat.getId()));
+        holdGate.afterSeatLock();
+        if (eventSeats.findByEventIdAndSeatIdAndActiveTrue(event.getId(), seat.getId()).isPresent()
+                || seatBlocks.findByEventIdAndSeatIdAndActiveTrue(event.getId(), seat.getId()).isPresent()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT);
+        }
         seatBlocks.save(new SeatBlock(event, seat, clock.now()));
         record(admin, event, seat, AuditKind.BLOCK, reason);
     }

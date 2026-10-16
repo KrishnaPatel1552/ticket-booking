@@ -14,4 +14,8 @@ public class ContinuingHoldGate implements HoldGate {
     @Override
     public void beforeWritingSeats() {
     }
+
+    @Override
+    public void afterSeatLock() {
+    }
 }

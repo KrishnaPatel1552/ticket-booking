@@ -102,6 +102,7 @@ public class HoldSeats {
         Instant heldUntil = now.plus(HOLD_FOR);
         holdGate.beforeWritingSeats();
         seatRowLock.lockInIdOrder(chosen.stream().map(Seat::getId).toList());
+        holdGate.afterSeatLock();
         for (Seat seat : chosen) {
             if (seatBlocks.findByEventIdAndSeatIdAndActiveTrue(event.getId(), seat.getId()).isPresent()) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT);
