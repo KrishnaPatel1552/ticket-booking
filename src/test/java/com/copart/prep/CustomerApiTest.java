@@ -259,6 +259,18 @@ class CustomerApiTest {
         assertThat(read.getBody().get("instant").asText()).isEqualTo("2030-01-15T12:00:00Z");
     }
 
+    @Test
+    void starterSaleTermsAreTheStoredGroupRateAndServiceFee() {
+        ApiSession ada = signIn("ada@example.com");
+
+        ResponseEntity<JsonNode> response = ada.get("/api/sale-terms");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("groupRateThreshold").asInt()).isEqualTo(4);
+        assertThat(response.getBody().get("groupRateAmountCents").asInt()).isEqualTo(500);
+        assertThat(response.getBody().get("serviceFeeCents").asInt()).isEqualTo(100);
+    }
+
     private static JsonNode findNamed(JsonNode events, String name) {
         for (JsonNode event : events) {
             if (name.equals(event.get("name").asText())) {

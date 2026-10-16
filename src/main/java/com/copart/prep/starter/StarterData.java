@@ -4,6 +4,8 @@ import com.copart.prep.event.Event;
 import com.copart.prep.event.EventRepository;
 import com.copart.prep.pricetier.PriceTier;
 import com.copart.prep.pricetier.PriceTierRepository;
+import com.copart.prep.saleterms.SaleTerms;
+import com.copart.prep.saleterms.SaleTermsRepository;
 import com.copart.prep.signin.Account;
 import com.copart.prep.signin.AccountRepository;
 import com.copart.prep.signin.AccountRole;
@@ -33,6 +35,7 @@ public class StarterData implements ApplicationRunner {
     private final PriceTierRepository priceTiers;
     private final SectionRepository sections;
     private final SeatRepository seats;
+    private final SaleTermsRepository saleTerms;
 
     public StarterData(
             AccountRepository accounts,
@@ -41,7 +44,8 @@ public class StarterData implements ApplicationRunner {
             EventRepository events,
             PriceTierRepository priceTiers,
             SectionRepository sections,
-            SeatRepository seats) {
+            SeatRepository seats,
+            SaleTermsRepository saleTerms) {
         this.accounts = accounts;
         this.passwordEncoder = passwordEncoder;
         this.venues = venues;
@@ -49,6 +53,7 @@ public class StarterData implements ApplicationRunner {
         this.priceTiers = priceTiers;
         this.sections = sections;
         this.seats = seats;
+        this.saleTerms = saleTerms;
     }
 
     @Override
@@ -57,6 +62,15 @@ public class StarterData implements ApplicationRunner {
         seedAccount("grace@example.com", AccountRole.CUSTOMER);
         seedAccount("admin@example.com", AccountRole.ADMIN);
         seedVenueAndEvent();
+        seedSaleTerms();
+    }
+
+    private void seedSaleTerms() {
+        if (saleTerms.count() > 0) {
+            return;
+        }
+        saleTerms.save(new SaleTerms(4, 500, 100));
+        logger.info("Seeded group rate threshold 4, group rate 500 cents, service fee 100 cents");
     }
 
     private void seedVenueAndEvent() {
