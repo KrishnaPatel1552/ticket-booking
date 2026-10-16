@@ -210,6 +210,42 @@ class CustomerApiTest {
         }
     }
 
+    @Test
+    void adminCreatesAPriceTierWithAnEarlyBirdPrice() {
+        ApiSession admin = signIn("admin@example.com");
+        long venueId = admin.get("/api/events?name=lights").getBody().get(0).get("venueId").asLong();
+        String name = "BalconyPlus-" + UUID.randomUUID();
+
+        ResponseEntity<JsonNode> created = admin.post("/api/admin/price-tiers", java.util.Map.of(
+                "name", name,
+                "venueId", venueId,
+                "priceCents", 7500,
+                "earlyBirdPriceCents", 6000));
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+        JsonNode match = findNamed(admin.get("/api/price-tiers").getBody(), name);
+        assertThat(match.get("priceCents").asInt()).isEqualTo(7500);
+        assertThat(match.get("earlyBirdPriceCents").asInt()).isEqualTo(6000);
+        assertThat(match.get("venueId").asLong()).isEqualTo(venueId);
+    }
+
+    @Test
+    void adminCreatesAPriceTierWithoutAnEarlyBirdPrice() {
+        ApiSession admin = signIn("admin@example.com");
+        long venueId = admin.get("/api/events?name=lights").getBody().get(0).get("venueId").asLong();
+        String name = "StandardLate-" + UUID.randomUUID();
+
+        ResponseEntity<JsonNode> created = admin.post("/api/admin/price-tiers", java.util.Map.of(
+                "name", name,
+                "venueId", venueId,
+                "priceCents", 3200));
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+        JsonNode match = findNamed(admin.get("/api/price-tiers").getBody(), name);
+        assertThat(match.get("priceCents").asInt()).isEqualTo(3200);
+        assertThat(match.get("earlyBirdPriceCents").isNull()).isTrue();
+    }
+
     private static JsonNode findNamed(JsonNode events, String name) {
         for (JsonNode event : events) {
             if (name.equals(event.get("name").asText())) {
