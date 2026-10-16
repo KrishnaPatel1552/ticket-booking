@@ -7,6 +7,7 @@ import com.copart.prep.signin.Account;
 import com.copart.prep.signin.AccountRepository;
 import com.copart.prep.venue.Seat;
 import com.copart.prep.venue.SeatRepository;
+import jakarta.persistence.EntityManager;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -30,6 +31,8 @@ public class HoldSeats {
     private final CustomerOrderRepository orders;
     private final EventSeatRepository eventSeats;
     private final AppClock clock;
+    private final EntityManager entityManager;
+    private final HoldGate holdGate;
 
     public HoldSeats(
             AccountRepository accounts,
@@ -37,13 +40,17 @@ public class HoldSeats {
             SeatRepository seats,
             CustomerOrderRepository orders,
             EventSeatRepository eventSeats,
-            AppClock clock) {
+            AppClock clock,
+            EntityManager entityManager,
+            HoldGate holdGate) {
         this.accounts = accounts;
         this.events = events;
         this.seats = seats;
         this.orders = orders;
         this.eventSeats = eventSeats;
         this.clock = clock;
+        this.entityManager = entityManager;
+        this.holdGate = holdGate;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -61,6 +68,7 @@ public class HoldSeats {
             }
             chosen.add(seat);
         }
+        lockCustomerEvent(customer.getId(), event.getId());
         Instant now = clock.now();
         CustomerOrder order = orders.findByCustomerIdAndEventIdAndOpenForHoldsTrue(customer.getId(), event.getId())
                 .orElse(null);
@@ -78,5 +86,27 @@ public class HoldSeats {
             eventSeats.save(new EventSeat(order, event, seat, EventSeatKind.HOLD, heldUntil));
         }
         return new HoldSeatsResponse(order.getId(), List.copyOf(seatIds), heldUntil);
+    }
+
+    private void lockCustomerEvent(long customerId, long eventId) {
+        entityManager.createNativeQuery("""
+                insert into customer_event (customer_id, event_id)
+                values (:customerId, :eventId)
+                on conflict (customer_id, event_id) do nothing
+                """)
+                .setParameter("customerId", customerId)
+                .setParameter("eventId", eventId)
+                .executeUpdate();
+        entityManager.createNativeQuery("""
+                select customer_id
+                from customer_event
+                where customer_id = :customerId
+                  and event_id = :eventId
+                for update
+                """)
+                .setParameter("customerId", customerId)
+                .setParameter("eventId", eventId)
+                .getSingleResult();
+        holdGate.afterCustomerEventLock();
     }
 }

@@ -2,6 +2,7 @@ package com.copart.prep;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.copart.prep.hold.PausingHoldGate;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -9,9 +10,14 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.sql.DataSource;
@@ -36,6 +42,9 @@ class HoldApiTest {
 
     @Autowired
     private DataSource dataSource;
+
+    @Autowired
+    private PausingHoldGate pausingHoldGate;
 
     @Test
     void customerHoldsFreeSeatsAndTheSeatMapShowsThemHeld() {
@@ -146,6 +155,76 @@ class HoldApiTest {
         assertThat(seatState(afterOne, "A12")).isEqualTo("held");
         assertThat(seatState(afterOne, "B1")).isEqualTo("free");
         assertThat(seatState(afterOne, "A11")).isEqualTo("ticket");
+    }
+
+    @Test
+    void secondHoldFromTheSameCustomerWaitsAndKeepsNothingWhenTheFirstUsedTheLastSpot() throws Exception {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession firstSession = signIn("ada@example.com");
+        ApiSession secondSession = signIn("ada@example.com");
+        JsonNode opened = firstSession.get("/api/events/" + eventId).getBody();
+        ResponseEntity<JsonNode> five = firstSession.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(
+                        seatId(opened, "A1"),
+                        seatId(opened, "A2"),
+                        seatId(opened, "A3"),
+                        seatId(opened, "A4"),
+                        seatId(opened, "A5"))));
+        assertThat(five.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        pausingHoldGate.arm();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<ResponseEntity<JsonNode>> first = pool.submit(() -> firstSession.post(
+                    "/api/events/" + eventId + "/holds",
+                    java.util.Map.of("seatIds", List.of(seatId(opened, "A6")))));
+            assertThat(pausingHoldGate.awaitFirstArrival(Duration.ofSeconds(10))).isTrue();
+            Future<ResponseEntity<JsonNode>> second = pool.submit(() -> secondSession.post(
+                    "/api/events/" + eventId + "/holds",
+                    java.util.Map.of("seatIds", List.of(seatId(opened, "A7")))));
+            awaitSecondDatabaseSessionWaitingOnALock();
+            pausingHoldGate.release();
+
+            assertThat(first.get(15, TimeUnit.SECONDS).getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(second.get(15, TimeUnit.SECONDS).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        } finally {
+            pausingHoldGate.release();
+            pool.shutdownNow();
+        }
+
+        JsonNode after = firstSession.get("/api/events/" + eventId).getBody();
+        assertThat(seatState(after, "A6")).isEqualTo("held");
+        assertThat(seatState(after, "A7")).isEqualTo("free");
+        for (String label : List.of("A1", "A2", "A3", "A4", "A5")) {
+            assertThat(seatState(after, label)).isEqualTo("held");
+        }
+    }
+
+    private void awaitSecondDatabaseSessionWaitingOnALock() throws SQLException, InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline) {
+            if (databaseSessionsWaitingOnALock() > 0) {
+                return;
+            }
+            Thread.sleep(20);
+        }
+        throw new AssertionError("The second hold never waited on a database lock");
+    }
+
+    private int databaseSessionsWaitingOnALock() throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+                Statement statement = connection.createStatement();
+                ResultSet rows = statement.executeQuery(
+                        "select count(*) from pg_stat_activity "
+                                + "where datname = current_database() "
+                                + "and wait_event_type = 'Lock' "
+                                + "and pid <> pg_backend_pid()")) {
+            if (!rows.next()) {
+                return 0;
+            }
+            return rows.getInt(1);
+        }
     }
 
     private void recordTicketsAlreadyCountingTowardTwelve(long eventId, List<Long> seatIds) {
