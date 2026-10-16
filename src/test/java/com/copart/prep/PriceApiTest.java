@@ -49,6 +49,78 @@ class PriceApiTest {
                 .isEqualTo(8100);
     }
 
+    @Test
+    void theEarlyBirdWindowIncludesItsStartAndExcludesItsEnd() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-10-01T00:00:00Z", "2026-11-15T00:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+
+        assertThat(checkoutOne(ada, eventId, opened, "A1", "2026-10-01T00:00:00Z")).isEqualTo(4100);
+        assertThat(checkoutOne(ada, eventId, opened, "A2", "2026-11-14T23:59:59Z")).isEqualTo(4100);
+        assertThat(checkoutOne(ada, eventId, opened, "A3", "2026-09-30T23:59:59Z")).isEqualTo(5100);
+        assertThat(checkoutOne(ada, eventId, opened, "A4", "2026-11-15T00:00:00Z")).isEqualTo(5100);
+    }
+
+    @Test
+    void fourSeatsInsideTheEarlyBirdWindowTakeTheGroupRateOffOnce() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-10-01T00:00:00Z", "2026-11-15T00:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        List<Long> seats = List.of(seatId(opened, "A1"), seatId(opened, "A2"), seatId(opened, "A3"), seatId(opened, "A4"));
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of("seatIds", seats));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+
+        ResponseEntity<JsonNode> checkedOut = ada.post("/api/orders/" + orderId + "/checkout", java.util.Map.of(
+                "seatIds", seats,
+                "mock", "success"));
+
+        assertThat(checkedOut.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ada.get("/api/orders/" + orderId).getBody().get("payment").get("amountCents").asInt())
+                .isEqualTo(15600);
+    }
+
+    @Test
+    void threeSeatsInsideTheEarlyBirdWindowDoNotTakeTheGroupRate() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-10-01T00:00:00Z", "2026-11-15T00:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        List<Long> seats = List.of(seatId(opened, "A1"), seatId(opened, "A2"), seatId(opened, "A3"));
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of("seatIds", seats));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+
+        ResponseEntity<JsonNode> checkedOut = ada.post("/api/orders/" + orderId + "/checkout", java.util.Map.of(
+                "seatIds", seats,
+                "mock", "success"));
+
+        assertThat(checkedOut.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ada.get("/api/orders/" + orderId).getBody().get("payment").get("amountCents").asInt())
+                .isEqualTo(12100);
+    }
+
+    private int checkoutOne(ApiSession ada, long eventId, JsonNode opened, String label, String instant) {
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", instant)).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        long seat = seatId(opened, label);
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(seat)));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+        ResponseEntity<JsonNode> checkedOut = ada.post("/api/orders/" + orderId + "/checkout", java.util.Map.of(
+                "seatIds", List.of(seat),
+                "mock", "success"));
+        assertThat(checkedOut.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return ada.get("/api/orders/" + orderId).getBody().get("payment").get("amountCents").asInt();
+    }
+
     private long createEvent(ApiSession admin, String earlyBirdStartsAt, String earlyBirdEndsAt) {
         long venueId = admin.get("/api/events?name=lights").getBody().get(0).get("venueId").asLong();
         String name = "PriceNight-" + UUID.randomUUID();

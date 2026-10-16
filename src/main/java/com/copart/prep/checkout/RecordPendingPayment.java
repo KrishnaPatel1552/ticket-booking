@@ -71,11 +71,12 @@ public class RecordPendingPayment {
         if (!liveHolds(holds, seatIds, now)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
+        SaleTerms terms = saleTerms();
         List<Integer> prices = new ArrayList<>();
         for (EventSeat hold : holds) {
             prices.add(startingPriceCents(hold, now));
         }
-        int amount = OrderAmount.cents(serviceFeeCents(), prices);
+        int amount = OrderAmount.cents(terms.getServiceFeeCents(), prices) - groupDiscountCents(terms, prices);
         order.closeForHolds();
         Payment payment = payments.save(new Payment(order, amount, PaymentStatus.PENDING, now));
         entityManager.flush();
@@ -109,11 +110,22 @@ public class RecordPendingPayment {
         return tier.getPriceCents();
     }
 
-    private int serviceFeeCents() {
+    private static int groupDiscountCents(SaleTerms terms, List<Integer> startingPrices) {
+        if (startingPrices.size() < terms.getGroupRateThreshold()) {
+            return 0;
+        }
+        int ticketTotal = 0;
+        for (int startingPrice : startingPrices) {
+            ticketTotal += startingPrice;
+        }
+        return Math.min(terms.getGroupRateAmountCents(), ticketTotal);
+    }
+
+    private SaleTerms saleTerms() {
         List<SaleTerms> terms = saleTerms.findAll();
         if (terms.size() != 1) {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
-        return terms.get(0).getServiceFeeCents();
+        return terms.get(0);
     }
 }

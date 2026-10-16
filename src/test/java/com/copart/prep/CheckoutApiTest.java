@@ -264,7 +264,7 @@ class CheckoutApiTest {
                 "mock", "success"));
         assertThat(checkedOut.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(ada.get("/api/orders/" + firstOrderId).getBody().get("payment").get("amountCents").asInt())
-                .isEqualTo(30100);
+                .isEqualTo(29600);
 
         List<Long> nextSix = List.of(
                 seatId(opened, "A7"),
