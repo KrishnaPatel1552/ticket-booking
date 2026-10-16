@@ -56,6 +56,19 @@ class CustomerApiTest {
         assertThat(me.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
+    @Test
+    void secondCustomerSignsInAsACustomer() {
+        ApiSession session = new ApiSession();
+
+        ResponseEntity<JsonNode> response = session.post("/api/sign-in", java.util.Map.of(
+                "email", "grace@example.com",
+                "password", "password"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("email").asText()).isEqualTo("grace@example.com");
+        assertThat(response.getBody().get("role").asText()).isEqualTo("customer");
+    }
+
     private final class ApiSession {
         private String cookieHeader = "";
 
