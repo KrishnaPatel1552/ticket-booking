@@ -44,6 +44,12 @@ public class CheckoutController {
         return reconcilePayment.lookup(orderId, email);
     }
 
+    @PostMapping("/api/orders/{orderId}/reconcile")
+    public OrderView reconcile(@PathVariable long orderId, @Valid @RequestBody ReconcileRequest request) {
+        script.scriptLookup(PaymentMockResult.fromWire(request.lookup()));
+        return reconcilePayment.lookup(orderId, signedInEmail());
+    }
+
     private static String signedInEmail() {
         return SecurityContextHolder.getContext().getAuthentication().getName();
     }
