@@ -3,6 +3,7 @@ package com.copart.prep.hold;
 import com.copart.prep.clock.AppClock;
 import com.copart.prep.event.Event;
 import com.copart.prep.event.EventRepository;
+import com.copart.prep.payment.PaymentRepository;
 import com.copart.prep.signin.Account;
 import com.copart.prep.signin.AccountRepository;
 import com.copart.prep.venue.Seat;
@@ -31,6 +32,7 @@ public class HoldSeats {
     private final SeatRepository seats;
     private final CustomerOrderRepository orders;
     private final EventSeatRepository eventSeats;
+    private final PaymentRepository payments;
     private final AppClock clock;
     private final EntityManager entityManager;
     private final HoldGate holdGate;
@@ -41,6 +43,7 @@ public class HoldSeats {
             SeatRepository seats,
             CustomerOrderRepository orders,
             EventSeatRepository eventSeats,
+            PaymentRepository payments,
             AppClock clock,
             EntityManager entityManager,
             HoldGate holdGate) {
@@ -49,6 +52,7 @@ public class HoldSeats {
         this.seats = seats;
         this.orders = orders;
         this.eventSeats = eventSeats;
+        this.payments = payments;
         this.clock = clock;
         this.entityManager = entityManager;
         this.holdGate = holdGate;
@@ -73,6 +77,11 @@ public class HoldSeats {
         Instant now = clock.now();
         CustomerOrder order = orders.findByCustomerIdAndEventIdAndOpenForHoldsTrue(customer.getId(), event.getId())
                 .orElse(null);
+        if (order != null && payments.existsForOrder(order.getId())) {
+            order.closeForHolds();
+            entityManager.flush();
+            order = null;
+        }
         long onOrder = order == null ? 0 : eventSeats.countActiveOnOrder(order.getId());
         long atEvent = eventSeats.countActiveForCustomerAtEvent(customer.getId(), event.getId());
         long remaining = Math.min(ORDER_CAP - onOrder, EVENT_CAP - atEvent);

@@ -297,6 +297,27 @@ class HoldApiTest {
         assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("held");
     }
 
+    @Test
+    void aHoldAfterAPaymentOpensANewOrder() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        ResponseEntity<JsonNode> first = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(seatId(opened, "A1"))));
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        insertPayment(first.getBody().get("orderId").asLong());
+
+        ResponseEntity<JsonNode> second = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(seatId(opened, "A2"))));
+
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(second.getBody().get("orderId").asLong()).isNotEqualTo(first.getBody().get("orderId").asLong());
+        JsonNode after = ada.get("/api/events/" + eventId).getBody();
+        assertThat(seatState(after, "A1")).isEqualTo("held");
+        assertThat(seatState(after, "A2")).isEqualTo("held");
+    }
+
     private void insertPayment(long orderId) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(

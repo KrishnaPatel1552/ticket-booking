@@ -61,4 +61,8 @@ public class CustomerOrder {
     public boolean isOpenForHolds() {
         return openForHolds;
     }
+
+    public void closeForHolds() {
+        this.openForHolds = false;
+    }
 }
