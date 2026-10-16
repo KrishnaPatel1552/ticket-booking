@@ -42,6 +42,14 @@ public class EventSeat {
     @Column(nullable = false)
     private boolean active;
 
+    private Integer startingPriceCents;
+
+    private Integer groupShareCents;
+
+    private Integer promoShareCents;
+
+    private Integer feeShareCents;
+
     protected EventSeat() {
     }
 
@@ -88,5 +96,28 @@ public class EventSeat {
 
     public void becomeTicket() {
         this.kind = EventSeatKind.TICKET;
+    }
+
+    public Integer getStartingPriceCents() {
+        return startingPriceCents;
+    }
+
+    public Integer getGroupShareCents() {
+        return groupShareCents;
+    }
+
+    public Integer getPromoShareCents() {
+        return promoShareCents;
+    }
+
+    public Integer getFeeShareCents() {
+        return feeShareCents;
+    }
+
+    public void assignShares(int startingPriceCents, int groupShareCents, int promoShareCents, int feeShareCents) {
+        this.startingPriceCents = startingPriceCents;
+        this.groupShareCents = groupShareCents;
+        this.promoShareCents = promoShareCents;
+        this.feeShareCents = feeShareCents;
     }
 }

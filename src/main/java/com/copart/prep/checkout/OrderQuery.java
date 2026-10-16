@@ -46,7 +46,14 @@ public class OrderQuery {
         }
         Payment payment = payments.findByOrder_Id(orderId).orElse(null);
         List<TicketView> tickets = eventSeats.findByOrderIdAndActiveTrueAndKind(orderId, EventSeatKind.TICKET).stream()
-                .map(claim -> new TicketView(claim.getSeat().getId(), claim.getSeat().getLabel()))
+                .map(claim -> new TicketView(
+                        claim.getId(),
+                        claim.getSeat().getId(),
+                        claim.getSeat().getLabel(),
+                        claim.getStartingPriceCents(),
+                        claim.getGroupShareCents(),
+                        claim.getPromoShareCents(),
+                        claim.getFeeShareCents()))
                 .toList();
         PaymentView paymentView = payment == null
                 ? null

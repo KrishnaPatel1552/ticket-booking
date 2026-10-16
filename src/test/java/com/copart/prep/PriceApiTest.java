@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.copart.prep.checkout.PausingPaymentAttemptGate;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -225,8 +227,19 @@ class PriceApiTest {
                 "mock", "success"));
 
         assertThat(checkedOut.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(ada.get("/api/orders/" + orderId).getBody().get("payment").get("amountCents").asInt())
-                .isEqualTo(19100);
+        JsonNode order = ada.get("/api/orders/" + orderId).getBody();
+        assertThat(order.get("payment").get("amountCents").asInt()).isEqualTo(19100);
+        List<JsonNode> tickets = ticketsById(order);
+        assertThat(tickets).hasSize(4);
+        int netsPlusFee = 0;
+        for (JsonNode ticket : tickets) {
+            assertThat(ticket.get("startingPriceCents").asInt()).isEqualTo(5000);
+            assertThat(ticket.get("groupShareCents").asInt()).isEqualTo(0);
+            assertThat(ticket.get("promoShareCents").asInt()).isEqualTo(250);
+            assertThat(ticket.get("feeShareCents").asInt()).isEqualTo(25);
+            netsPlusFee += 5000 - 250 + 25;
+        }
+        assertThat(netsPlusFee).isEqualTo(19100);
     }
 
     @Test
@@ -383,6 +396,116 @@ class PriceApiTest {
         assertThat(amount(grace, graceOrder)).isEqualTo(15600);
         assertThat(grace.get("/api/orders/" + graceOrder).getBody().get("payment").get("status").asText())
                 .isEqualTo("succeeded");
+    }
+
+    @Test
+    void threeTicketsSplitAHundredCentFeeWithTheLeftoverOnTheLowestTicketId() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createPlainEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        List<Long> seats = List.of(seatId(opened, "A1"), seatId(opened, "A2"), seatId(opened, "A3"));
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of("seatIds", seats));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+
+        ResponseEntity<JsonNode> checkedOut = ada.post("/api/orders/" + orderId + "/checkout", java.util.Map.of(
+                "seatIds", seats,
+                "mock", "success"));
+
+        assertThat(checkedOut.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode order = ada.get("/api/orders/" + orderId).getBody();
+        assertThat(order.get("payment").get("amountCents").asInt()).isEqualTo(15100);
+        List<JsonNode> tickets = ticketsById(order);
+        assertThat(tickets).hasSize(3);
+        assertThat(tickets.get(0).get("feeShareCents").asInt()).isEqualTo(34);
+        assertThat(tickets.get(1).get("feeShareCents").asInt()).isEqualTo(33);
+        assertThat(tickets.get(2).get("feeShareCents").asInt()).isEqualTo(33);
+        int netsPlusFee = 0;
+        for (JsonNode ticket : tickets) {
+            assertThat(ticket.get("startingPriceCents").asInt()).isEqualTo(5000);
+            assertThat(ticket.get("groupShareCents").asInt()).isEqualTo(0);
+            assertThat(ticket.get("promoShareCents").asInt()).isEqualTo(0);
+            netsPlusFee += ticket.get("startingPriceCents").asInt()
+                    - ticket.get("groupShareCents").asInt()
+                    - ticket.get("promoShareCents").asInt()
+                    + ticket.get("feeShareCents").asInt();
+        }
+        assertThat(netsPlusFee).isEqualTo(15100);
+    }
+
+    @Test
+    void aHundredCentPromoSplitsWithTheLeftoverOnTheLowestTicketId() {
+        ApiSession admin = signIn("admin@example.com");
+        String code = createPromo(admin, 100, 5, 2, false);
+        long eventId = createPlainEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        List<Long> seats = List.of(seatId(opened, "A1"), seatId(opened, "A2"), seatId(opened, "A3"));
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of("seatIds", seats));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+        assertThat(ada.post("/api/orders/" + orderId + "/promo-code", java.util.Map.of("code", code)).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        assertThat(ada.post("/api/orders/" + orderId + "/checkout", java.util.Map.of(
+                "seatIds", seats, "mock", "success")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        JsonNode order = ada.get("/api/orders/" + orderId).getBody();
+        assertThat(order.get("payment").get("amountCents").asInt()).isEqualTo(15000);
+        List<JsonNode> tickets = ticketsById(order);
+        assertThat(tickets.get(0).get("promoShareCents").asInt()).isEqualTo(34);
+        assertThat(tickets.get(1).get("promoShareCents").asInt()).isEqualTo(33);
+        assertThat(tickets.get(2).get("promoShareCents").asInt()).isEqualTo(33);
+        assertThat(tickets.get(0).get("feeShareCents").asInt()).isEqualTo(34);
+        assertThat(tickets.get(1).get("feeShareCents").asInt()).isEqualTo(33);
+        assertThat(tickets.get(2).get("feeShareCents").asInt()).isEqualTo(33);
+    }
+
+    @Test
+    void aLaterSuccessKeepsTheSharesRecordedWithThePendingPayment() throws Exception {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-10-01T00:00:00Z", "2026-11-15T00:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(a1)));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+
+        paymentGate.arm();
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<ResponseEntity<JsonNode>> checkout = pool.submit(() -> ada.post(
+                    "/api/orders/" + orderId + "/checkout",
+                    java.util.Map.of("seatIds", List.of(a1), "mock", "success")));
+            assertThat(paymentGate.awaitArrival(Duration.ofSeconds(10))).isTrue();
+            assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-11-15T00:00:00Z")).getStatusCode())
+                    .isEqualTo(HttpStatus.OK);
+            paymentGate.release();
+            assertThat(checkout.get(15, TimeUnit.SECONDS).getStatusCode()).isEqualTo(HttpStatus.OK);
+        } finally {
+            paymentGate.release();
+            pool.shutdownNow();
+        }
+
+        JsonNode order = ada.get("/api/orders/" + orderId).getBody();
+        assertThat(order.get("payment").get("amountCents").asInt()).isEqualTo(4100);
+        JsonNode ticket = ticketsById(order).get(0);
+        assertThat(ticket.get("startingPriceCents").asInt()).isEqualTo(4000);
+        assertThat(ticket.get("groupShareCents").asInt()).isEqualTo(0);
+        assertThat(ticket.get("promoShareCents").asInt()).isEqualTo(0);
+        assertThat(ticket.get("feeShareCents").asInt()).isEqualTo(100);
+    }
+
+    private static List<JsonNode> ticketsById(JsonNode order) {
+        List<JsonNode> tickets = new ArrayList<>();
+        order.get("tickets").forEach(tickets::add);
+        tickets.sort(Comparator.comparingLong(ticket -> ticket.get("id").asLong()));
+        return tickets;
     }
 
     private long holdAttachAndCheckout(ApiSession customer, long eventId, String label, String code, String mock) {

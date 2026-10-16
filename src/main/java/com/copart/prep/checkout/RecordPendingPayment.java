@@ -20,6 +20,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -76,17 +77,47 @@ public class RecordPendingPayment {
         SaleTerms terms = saleTerms();
         PromoCode applied = appliedPromo(order.getPromoCode(), customer.getId());
         boolean exclusive = applied != null && applied.isExclusive();
+        List<EventSeat> pricedHolds = new ArrayList<>(holds);
+        pricedHolds.sort(Comparator.comparing(EventSeat::getId));
         List<Integer> prices = new ArrayList<>();
-        for (EventSeat hold : holds) {
+        for (EventSeat hold : pricedHolds) {
             prices.add(startingPriceCents(hold, now, exclusive));
         }
         int groupDiscount = exclusive ? 0 : groupDiscountCents(terms, prices);
         int promoDiscount = promoDiscountCents(applied, prices, groupDiscount);
+        assignShares(pricedHolds, prices, groupDiscount, promoDiscount, terms.getServiceFeeCents());
         int amount = OrderAmount.cents(terms.getServiceFeeCents(), prices) - groupDiscount - promoDiscount;
         order.closeForHolds();
         Payment payment = payments.save(new Payment(order, amount, PaymentStatus.PENDING, now, applied));
         entityManager.flush();
         return payment.getId();
+    }
+
+    private static void assignShares(
+            List<EventSeat> holds,
+            List<Integer> startingPrices,
+            int groupDiscount,
+            int promoDiscount,
+            int serviceFeeCents) {
+        int count = holds.size();
+        int[] weights = new int[count];
+        long[] ticketIds = new long[count];
+        int[] afterGroup = new int[count];
+        int[] equal = new int[count];
+        for (int index = 0; index < count; index++) {
+            weights[index] = startingPrices.get(index);
+            ticketIds[index] = holds.get(index).getId();
+            equal[index] = 1;
+        }
+        int[] groupShares = CentShares.split(groupDiscount, weights, ticketIds);
+        for (int index = 0; index < count; index++) {
+            afterGroup[index] = weights[index] - groupShares[index];
+        }
+        int[] promoShares = CentShares.split(promoDiscount, afterGroup, ticketIds);
+        int[] feeShares = CentShares.split(serviceFeeCents, equal, ticketIds);
+        for (int index = 0; index < count; index++) {
+            holds.get(index).assignShares(weights[index], groupShares[index], promoShares[index], feeShares[index]);
+        }
     }
 
     private PromoCode appliedPromo(PromoCode attached, long customerId) {
