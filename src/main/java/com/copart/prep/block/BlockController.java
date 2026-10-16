@@ -21,4 +21,12 @@ public class BlockController {
             @RequestBody OverrideReason request) {
         blockSeat.block(eventId, seatId, request.reason());
     }
+
+    @PostMapping("/api/admin/events/{eventId}/seats/{seatId}/release")
+    public void release(
+            @PathVariable long eventId,
+            @PathVariable long seatId,
+            @RequestBody OverrideReason request) {
+        blockSeat.release(eventId, seatId, request.reason());
+    }
 }

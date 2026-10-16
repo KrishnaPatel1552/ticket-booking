@@ -44,6 +44,26 @@ class BlockApiTest {
         assertThat(seatState(after, "B1")).isEqualTo("free");
     }
 
+    @Test
+    void adminReleasesABlockAndOpeningTheEventShowsTheSeatFree() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        ResponseEntity<JsonNode> blocked = admin.post(
+                "/api/admin/events/" + eventId + "/seats/" + a1 + "/block",
+                java.util.Map.of("reason", "Artist hold"));
+        assertThat(blocked.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<JsonNode> released = admin.post(
+                "/api/admin/events/" + eventId + "/seats/" + a1 + "/release",
+                java.util.Map.of("reason", "Artist is seated"));
+
+        assertThat(released.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("free");
+    }
+
     private long createEvent(ApiSession admin) {
         long venueId = admin.get("/api/events?name=lights").getBody().get(0).get("venueId").asLong();
         String name = "BlockNight-" + UUID.randomUUID();

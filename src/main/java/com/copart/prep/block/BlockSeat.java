@@ -41,4 +41,18 @@ public class BlockSeat {
         }
         seatBlocks.save(new SeatBlock(event, seat, clock.now()));
     }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public void release(long eventId, long seatId, String reason) {
+        Event event = events.findById(eventId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        Seat seat = seats.findById(seatId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST));
+        if (!seat.getSection().getVenue().getId().equals(event.getVenue().getId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+        SeatBlock block = seatBlocks.findByEventIdAndSeatIdAndActiveTrue(event.getId(), seat.getId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT));
+        block.release();
+    }
 }
