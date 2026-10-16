@@ -106,6 +106,34 @@ class PriceApiTest {
                 .isEqualTo(12100);
     }
 
+    @Test
+    void anAdminCreatesAPromoCodeAndACustomerIsRefused() {
+        ApiSession admin = signIn("admin@example.com");
+        String code = "SAVE100-" + UUID.randomUUID();
+        ResponseEntity<JsonNode> created = admin.post("/api/admin/promo-codes", java.util.Map.of(
+                "code", code,
+                "discountCents", 100,
+                "globalLimit", 5,
+                "perCustomerLimit", 1,
+                "exclusive", false));
+
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(created.getBody().get("code").asText()).isEqualTo(code);
+        assertThat(created.getBody().get("discountCents").asInt()).isEqualTo(100);
+        assertThat(created.getBody().get("globalLimit").asInt()).isEqualTo(5);
+        assertThat(created.getBody().get("perCustomerLimit").asInt()).isEqualTo(1);
+        assertThat(created.getBody().get("exclusive").asBoolean()).isFalse();
+
+        ApiSession ada = signIn("ada@example.com");
+        ResponseEntity<JsonNode> refused = ada.post("/api/admin/promo-codes", java.util.Map.of(
+                "code", "NOPE-" + UUID.randomUUID(),
+                "discountCents", 50,
+                "globalLimit", 1,
+                "perCustomerLimit", 1,
+                "exclusive", true));
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
     private int checkoutOne(ApiSession ada, long eventId, JsonNode opened, String label, String instant) {
         assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", instant)).getStatusCode())
                 .isEqualTo(HttpStatus.OK);
