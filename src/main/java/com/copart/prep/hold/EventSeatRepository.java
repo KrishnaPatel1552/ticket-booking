@@ -1,7 +1,10 @@
 package com.copart.prep.hold;
 
+import jakarta.persistence.LockModeType;
+import java.time.Instant;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -25,4 +28,18 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
               and claim.active = true
             """)
     long countActiveForCustomerAtEvent(@Param("customerId") long customerId, @Param("eventId") long eventId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select claim
+            from EventSeat claim
+            where claim.event.id = :eventId
+              and claim.active = true
+              and claim.kind = :kind
+              and claim.heldUntil <= :now
+            """)
+    List<EventSeat> lockExpiredHolds(
+            @Param("eventId") long eventId,
+            @Param("kind") EventSeatKind kind,
+            @Param("now") Instant now);
 }

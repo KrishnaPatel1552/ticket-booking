@@ -248,6 +248,35 @@ class HoldApiTest {
         assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("held");
     }
 
+    @Test
+    void openingTheEventAfterTenMinutesFreesAHoldAndTheSeatCanBeHeldAgain() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        ResponseEntity<JsonNode> moved = ada.post("/api/test/clock", java.util.Map.of(
+                "instant", "2031-04-01T12:00:00Z"));
+        assertThat(moved.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(seatId(opened, "A1"))));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<JsonNode> stillInside = ada.post("/api/test/clock", java.util.Map.of(
+                "instant", "2031-04-01T12:09:59Z"));
+        assertThat(stillInside.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("held");
+
+        ResponseEntity<JsonNode> expired = ada.post("/api/test/clock", java.util.Map.of(
+                "instant", "2031-04-01T12:10:00Z"));
+        assertThat(expired.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("free");
+
+        ResponseEntity<JsonNode> again = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(seatId(opened, "A1"))));
+        assertThat(again.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("held");
+    }
+
     private void awaitSecondDatabaseSessionWaitingOnALock() throws SQLException, InterruptedException {
         long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
         while (System.nanoTime() < deadline) {

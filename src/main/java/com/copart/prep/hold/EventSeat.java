@@ -81,4 +81,8 @@ public class EventSeat {
     public boolean isActive() {
         return active;
     }
+
+    public void release() {
+        this.active = false;
+    }
 }
