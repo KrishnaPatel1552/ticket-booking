@@ -3,6 +3,7 @@ package com.copart.prep;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
@@ -116,6 +117,43 @@ class CustomerApiTest {
         assertThat(matches.get(0).get("venueName").asText()).isEqualTo("Harbor Hall");
         assertThat(matches.get(0).get("startsAt").asText()).isEqualTo("2026-12-15T01:00:00Z");
         assertThat(matches.get(0).get("timeZone").asText()).isEqualTo("America/New_York");
+    }
+
+    @Test
+    void openingAnEventReturnsTheSeatMapBySection() {
+        ApiSession ada = signIn("ada@example.com");
+        long eventId = ada.get("/api/events?name=lights").getBody().get(0).get("id").asLong();
+
+        ResponseEntity<JsonNode> response = ada.get("/api/events/" + eventId);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode event = response.getBody();
+        assertThat(event.get("name").asText()).isEqualTo("Harbor Lights");
+        assertThat(event.get("earlyBirdStartsAt").asText()).isEqualTo("2026-10-01T00:00:00Z");
+        assertThat(event.get("earlyBirdEndsAt").asText()).isEqualTo("2026-11-15T00:00:00Z");
+
+        JsonNode sections = event.get("sections");
+        assertThat(sections).hasSize(2);
+        assertThat(sections.get(0).get("name").asText()).isEqualTo("Orchestra");
+        assertThat(seatLabels(sections.get(0))).containsExactly(
+                "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A11", "A12");
+        assertThat(sections.get(1).get("name").asText()).isEqualTo("Balcony");
+        assertThat(seatLabels(sections.get(1))).containsExactly(
+                "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8");
+
+        for (JsonNode section : sections) {
+            for (JsonNode seat : section.get("seats")) {
+                assertThat(seat.get("priceCents").asInt()).isEqualTo(5000);
+                assertThat(seat.get("earlyBirdPriceCents").asInt()).isEqualTo(4000);
+                assertThat(seat.get("state").asText()).isEqualTo("free");
+            }
+        }
+    }
+
+    private static List<String> seatLabels(JsonNode section) {
+        List<String> labels = new ArrayList<>();
+        section.get("seats").forEach(seat -> labels.add(seat.get("label").asText()));
+        return labels;
     }
 
     private ApiSession signIn(String email) {
