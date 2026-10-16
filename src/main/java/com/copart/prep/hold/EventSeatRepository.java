@@ -24,6 +24,15 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
             """)
     List<EventSeat> lockActiveForSeats(@Param("orderId") long orderId, @Param("seatIds") List<Long> seatIds);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select claim
+            from EventSeat claim
+            where claim.order.id = :orderId
+              and claim.active = true
+            """)
+    List<EventSeat> lockActiveOnOrder(@Param("orderId") long orderId);
+
     @Query("""
             select count(claim)
             from EventSeat claim

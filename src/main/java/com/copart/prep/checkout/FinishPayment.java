@@ -31,7 +31,37 @@ public class FinishPayment {
         switch (result) {
             case SUCCESS -> succeed(payment, seatIds);
             case DECLINE -> decline(payment, seatIds);
-            case TIMEOUT, UNKNOWN -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+            case TIMEOUT, UNKNOWN -> payment.mark(PaymentStatus.UNKNOWN);
+        }
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public void applyLookup(long paymentId, PaymentMockResult result) {
+        Payment payment = payments.findById(paymentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        if (payments.findNeedingReconcile(payment.getOrder().getId()).isEmpty()) {
+            return;
+        }
+        switch (result) {
+            case SUCCESS -> writeTickets(payment);
+            case DECLINE -> releaseSeats(payment);
+            case TIMEOUT, UNKNOWN -> payment.mark(PaymentStatus.UNKNOWN);
+        }
+    }
+
+    private void writeTickets(Payment payment) {
+        payment.mark(PaymentStatus.SUCCEEDED);
+        for (EventSeat claim : eventSeats.lockActiveOnOrder(payment.getOrder().getId())) {
+            if (claim.getKind() == EventSeatKind.HOLD) {
+                claim.becomeTicket();
+            }
+        }
+    }
+
+    private void releaseSeats(Payment payment) {
+        payment.mark(PaymentStatus.DECLINED);
+        for (EventSeat claim : eventSeats.lockActiveOnOrder(payment.getOrder().getId())) {
+            claim.release();
         }
     }
 

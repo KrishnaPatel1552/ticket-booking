@@ -269,6 +269,34 @@ class CheckoutApiTest {
         assertThat(seatState(after, "B1")).isEqualTo("free");
     }
 
+    @Test
+    void openingTheOrderLooksUpAnUnknownPaymentOnceAndWritesTheTickets() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(a1)));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+        ResponseEntity<JsonNode> checkedOut = ada.post("/api/orders/" + orderId + "/checkout", java.util.Map.of(
+                "seatIds", List.of(a1),
+                "mock", "unknown"));
+        assertThat(checkedOut.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<JsonNode> lookedUp = ada.get("/api/orders/" + orderId + "?lookup=success");
+
+        assertThat(lookedUp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(lookedUp.getBody().get("payment").get("status").asText()).isEqualTo("succeeded");
+        assertThat(lookedUp.getBody().get("payment").get("amountCents").asInt()).isEqualTo(5100);
+        assertThat(ticketLabels(lookedUp.getBody())).containsExactly("A1");
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("ticket");
+        JsonNode again = ada.get("/api/orders/" + orderId + "?lookup=decline").getBody();
+        assertThat(again.get("payment").get("status").asText()).isEqualTo("succeeded");
+        assertThat(ticketLabels(again)).containsExactly("A1");
+    }
+
     private long createEvent(ApiSession admin) {
         long venueId = admin.get("/api/events?name=lights").getBody().get(0).get("venueId").asLong();
         String name = "CheckoutNight-" + UUID.randomUUID();
