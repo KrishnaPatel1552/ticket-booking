@@ -210,7 +210,11 @@ export default function App() {
     setSearching(true);
     setSearchError(null);
     try {
-      setEvents(await searchEvents(name));
+      const found = await searchEvents(name);
+      setEvents(found);
+      if (found.length === 0) {
+        setSearchError("No events match that name.");
+      }
       if (openEventId != null) {
         await loadSeatMap(openEventId);
       }
@@ -339,6 +343,8 @@ export default function App() {
     }
   }
 
+  const openedEvent = events.find((event) => event.id === openEventId) ?? null;
+
   if (signedIn == null) {
     return (
       <main className="sign-in-screen">
@@ -375,45 +381,47 @@ export default function App() {
   }
 
   return (
-    <main className="page">
-      <header className="mast">
-        <p className="eyebrow">Harbor Hall</p>
-        <h1>Events</h1>
+    <main className="events-screen">
+      <header className="events-mast">
+        <h1>Ticket Booking</h1>
         <p className="who">Signed in as {signedIn.email}</p>
       </header>
-      <form className="panel search" onSubmit={submitSearch}>
-        <label>
-          Search events by name
-          <input value={query} onChange={(event) => setQuery(event.target.value)} />
-        </label>
-        <button type="submit" disabled={searching}>
-          {searching ? "Searching…" : "Search"}
-        </button>
-        {searchError != null ? <p className="error">{searchError}</p> : null}
-      </form>
-      <ul className="results">
-        {events.map((event) => (
-          <li key={event.id}>
-            <div>
-              <strong>{event.name}</strong>
-              <span>
-                {event.venueName} · {formatWhen(event.startsAt, event.timeZone)}
-              </span>
-            </div>
-            <button type="button" onClick={() => void openEvent(event.id)}>
-              Open seat map
+      {openedEvent == null ? (
+        <>
+          <form className="events-search" onSubmit={submitSearch}>
+            <label>
+              Search events by name
+              <input value={query} onChange={(event) => setQuery(event.target.value)} />
+            </label>
+            <button type="submit" disabled={searching}>
+              {searching ? "Searching…" : "Search"}
             </button>
-          </li>
-        ))}
-      </ul>
+            {searchError != null ? <p className="error">{searchError}</p> : null}
+          </form>
+          <ul className="results">
+            {events.map((event) => (
+              <li key={event.id}>
+                <p className="result-name">{event.name}</p>
+                <p>{event.venueName}</p>
+                <p>{formatWhen(event.startsAt, event.timeZone)}</p>
+                <button type="button" onClick={() => void openEvent(event.id)}>
+                  Open seat map
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <section className="opened-event">
+          <h2 className="event-name">{openedEvent.name}</h2>
+          <p>{openedEvent.venueName}</p>
+          <p>{formatWhen(openedEvent.startsAt, openedEvent.timeZone)}</p>
+        </section>
+      )}
       {opening ? <p className="status">Loading the seat map…</p> : null}
       {mapError != null ? <p className="error">{mapError}</p> : null}
       {seatMap != null ? (
         <section className="map">
-          <h2>{seatMap.name}</h2>
-          <p>
-            {seatMap.venueName} · {formatWhen(seatMap.startsAt, seatMap.timeZone)}
-          </p>
           <div className="hold-bar">
             <button type="button" onClick={() => void submitHold()} disabled={holding || selectedSeatIds.length === 0}>
               {holding ? "Holding…" : "Hold seats"}
