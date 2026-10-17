@@ -7,6 +7,7 @@ import com.copart.prep.hold.EventSeat;
 import com.copart.prep.hold.EventSeatKind;
 import com.copart.prep.hold.EventSeatRepository;
 import com.copart.prep.refund.Refund;
+import com.copart.prep.refund.RefundKind;
 import com.copart.prep.refund.RefundRepository;
 import com.copart.prep.refund.RefundStatus;
 import com.copart.prep.signin.Account;
@@ -75,7 +76,7 @@ public class RecordPendingRefund {
         int amount = repaired != null
                 ? repaired
                 : amountCents(tickets, now, order.getEvent().getStartsAt());
-        Refund refund = new Refund(order, amount, RefundStatus.PENDING, now);
+        Refund refund = new Refund(order, amount, RefundStatus.PENDING, now, RefundKind.CUSTOMER_CANCEL);
         for (EventSeat ticket : tickets) {
             refund.addTicket(ticket);
         }

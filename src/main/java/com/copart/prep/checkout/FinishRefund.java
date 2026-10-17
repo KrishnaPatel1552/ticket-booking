@@ -4,6 +4,7 @@ import com.copart.prep.hold.EventSeat;
 import com.copart.prep.hold.EventSeatKind;
 import com.copart.prep.hold.EventSeatRepository;
 import com.copart.prep.refund.Refund;
+import com.copart.prep.refund.RefundKind;
 import com.copart.prep.refund.RefundRepository;
 import com.copart.prep.refund.RefundStatus;
 import java.util.ArrayList;
@@ -59,6 +60,10 @@ public class FinishRefund {
     }
 
     private void succeed(Refund refund) {
+        if (refund.getKind() == RefundKind.EXCEPTIONAL) {
+            refund.mark(RefundStatus.SUCCEEDED);
+            return;
+        }
         List<Long> seatIds = new ArrayList<>();
         for (EventSeat ticket : refund.getTickets()) {
             seatIds.add(ticket.getSeat().getId());

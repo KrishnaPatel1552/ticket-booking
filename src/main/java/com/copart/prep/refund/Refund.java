@@ -41,6 +41,10 @@ public class Refund {
     @Column(nullable = false)
     private Instant createdAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private RefundKind kind;
+
     @ManyToMany
     @JoinTable(
             name = "refund_ticket",
@@ -51,11 +55,17 @@ public class Refund {
     protected Refund() {
     }
 
-    public Refund(CustomerOrder order, int amountCents, RefundStatus status, Instant createdAt) {
+    public Refund(
+            CustomerOrder order,
+            int amountCents,
+            RefundStatus status,
+            Instant createdAt,
+            RefundKind kind) {
         this.order = order;
         this.amountCents = amountCents;
         this.status = status;
         this.createdAt = createdAt;
+        this.kind = kind;
     }
 
     public Long getId() {
@@ -76,6 +86,10 @@ public class Refund {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public RefundKind getKind() {
+        return kind;
     }
 
     public List<EventSeat> getTickets() {

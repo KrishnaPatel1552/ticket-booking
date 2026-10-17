@@ -16,7 +16,7 @@ public interface RefundRepository extends JpaRepository<Refund, Long> {
     @Query("""
             select refund
             from Refund refund
-            join fetch refund.tickets
+            left join fetch refund.tickets
             where refund.id = :id
             """)
     Optional<Refund> findWithTickets(@Param("id") long id);
