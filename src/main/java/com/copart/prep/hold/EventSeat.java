@@ -42,6 +42,9 @@ public class EventSeat {
     @Column(nullable = false)
     private boolean active;
 
+    @Column(nullable = false)
+    private boolean fromWaitlist;
+
     private Integer startingPriceCents;
 
     private Integer groupShareCents;
@@ -60,6 +63,7 @@ public class EventSeat {
         this.kind = kind;
         this.heldUntil = heldUntil;
         this.active = true;
+        this.fromWaitlist = false;
     }
 
     public Long getId() {
