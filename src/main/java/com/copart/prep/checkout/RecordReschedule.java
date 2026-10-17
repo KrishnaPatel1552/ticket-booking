@@ -10,6 +10,7 @@ import com.copart.prep.hold.EventSeat;
 import com.copart.prep.hold.EventSeatRepository;
 import com.copart.prep.signin.Account;
 import com.copart.prep.signin.AccountRepository;
+import com.copart.prep.waitlist.OfferWaitlist;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -25,6 +26,7 @@ public class RecordReschedule {
     private final EventRepository events;
     private final AuditEntryRepository auditEntries;
     private final EventSeatRepository eventSeats;
+    private final OfferWaitlist offerWaitlist;
     private final AppClock clock;
 
     public RecordReschedule(
@@ -32,11 +34,13 @@ public class RecordReschedule {
             EventRepository events,
             AuditEntryRepository auditEntries,
             EventSeatRepository eventSeats,
+            OfferWaitlist offerWaitlist,
             AppClock clock) {
         this.accounts = accounts;
         this.events = events;
         this.auditEntries = auditEntries;
         this.eventSeats = eventSeats;
+        this.offerWaitlist = offerWaitlist;
         this.clock = clock;
     }
 
@@ -56,5 +60,6 @@ public class RecordReschedule {
         for (EventSeat hold : bareHolds) {
             hold.release();
         }
+        offerWaitlist.offer(eventId, bareHolds);
     }
 }

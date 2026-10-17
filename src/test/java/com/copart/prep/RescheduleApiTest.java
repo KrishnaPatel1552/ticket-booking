@@ -183,6 +183,67 @@ class RescheduleApiTest {
                 .getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
+    @Test
+    void aFreedHoldIsOfferedAndTheWaitlistKeepsItsOrder() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        blockExcept(admin, eventId, opened, "A1");
+        long a1 = seatId(opened, "A1");
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(a1)));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+        assertThat(ada.post("/api/events/" + eventId + "/waitlist", java.util.Map.of()).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(grace.post("/api/events/" + eventId + "/waitlist", java.util.Map.of()).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode adaBefore = ada.get("/api/events/" + eventId + "/waitlist").getBody();
+        JsonNode graceBefore = grace.get("/api/events/" + eventId + "/waitlist").getBody();
+        assertThat(adaBefore.get("place").asInt()).isEqualTo(1);
+        assertThat(adaBefore.get("orderId").isNull()).isTrue();
+        assertThat(graceBefore.get("place").asInt()).isEqualTo(2);
+        assertThat(graceBefore.get("orderId").isNull()).isTrue();
+
+        assertThat(admin.post("/api/admin/events/" + eventId + "/reschedule", java.util.Map.of(
+                "startsAt", "2027-03-01T01:00:00Z",
+                "reason", "The venue moved the date")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        JsonNode adaLine = ada.get("/api/events/" + eventId + "/waitlist").getBody();
+        JsonNode graceLine = grace.get("/api/events/" + eventId + "/waitlist").getBody();
+        assertThat(adaLine.get("place").asInt()).isEqualTo(1);
+        assertThat(adaLine.get("orderId").asLong()).isEqualTo(orderId);
+        assertThat(graceLine.get("place").asInt()).isEqualTo(2);
+        assertThat(graceLine.get("orderId").isNull()).isTrue();
+        JsonNode order = ada.get("/api/orders/" + orderId).getBody();
+        assertThat(order.get("refunds")).isEmpty();
+        assertThat(order.get("tickets")).isEmpty();
+        assertThat(order.get("payment").isNull()).isTrue();
+        assertThat(order.get("holds")).hasSize(1);
+        assertThat(order.get("holds").get(0).get("label").asText()).isEqualTo("A1");
+        assertThat(order.get("holds").get(0).get("heldUntil").asText()).isEqualTo("2026-10-16T15:15:00Z");
+        assertThat(seatState(grace.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("held");
+        assertThat(grace.post("/api/events/" + eventId + "/holds", java.util.Map.of("seatIds", List.of(a1)))
+                .getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    private void blockExcept(ApiSession admin, long eventId, JsonNode map, String kept) {
+        for (JsonNode section : map.get("sections")) {
+            for (JsonNode seat : section.get("seats")) {
+                if (kept.equals(seat.get("label").asText())) {
+                    continue;
+                }
+                assertThat(admin.post(
+                        "/api/admin/events/" + eventId + "/seats/" + seat.get("id").asLong() + "/block",
+                        java.util.Map.of("reason", "Hold the house")).getStatusCode()).isEqualTo(HttpStatus.OK);
+            }
+        }
+    }
+
     private long holdAndCheckout(ApiSession customer, long eventId, List<Long> seatIds) {
         ResponseEntity<JsonNode> held = customer.post("/api/events/" + eventId + "/holds", java.util.Map.of(
                 "seatIds", seatIds));
