@@ -6,6 +6,7 @@ import com.copart.prep.audit.AuditKind;
 import com.copart.prep.clock.AppClock;
 import com.copart.prep.hold.CustomerOrder;
 import com.copart.prep.hold.CustomerOrderRepository;
+import com.copart.prep.hold.EventSeat;
 import com.copart.prep.hold.EventSeatKind;
 import com.copart.prep.hold.EventSeatRepository;
 import com.copart.prep.refund.Refund;
@@ -16,6 +17,7 @@ import com.copart.prep.signin.Account;
 import com.copart.prep.signin.AccountRepository;
 import jakarta.persistence.EntityManager;
 import java.time.Instant;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -56,7 +58,8 @@ public class RecordPendingExceptionalRefund {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED));
         CustomerOrder order = orders.findById(orderId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-        if (eventSeats.findByOrderIdAndActiveTrueAndKind(orderId, EventSeatKind.TICKET).isEmpty()) {
+        List<EventSeat> claims = eventSeats.lockActiveOnOrder(orderId);
+        if (!hasTicket(claims) || !refunds.findNeedingLookup(orderId).isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
         Instant now = clock.now();
@@ -66,5 +69,14 @@ public class RecordPendingExceptionalRefund {
                 admin, order.getEvent(), null, AuditKind.EXCEPTIONAL_REFUND, reason, now));
         entityManager.flush();
         return new RecordedExceptionalRefund(refund.getId(), order.getCustomer().getEmail());
+    }
+
+    private static boolean hasTicket(List<EventSeat> claims) {
+        for (EventSeat claim : claims) {
+            if (claim.getKind() == EventSeatKind.TICKET) {
+                return true;
+            }
+        }
+        return false;
     }
 }
