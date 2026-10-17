@@ -1,0 +1,15 @@
+package ticketbooking.hold;
+
+import ticketbooking.event.SeatState;
+
+public enum EventSeatKind {
+    HOLD,
+    TICKET;
+
+    public SeatState seatState() {
+        return switch (this) {
+            case HOLD -> SeatState.HELD;
+            case TICKET -> SeatState.TICKET;
+        };
+    }
+}

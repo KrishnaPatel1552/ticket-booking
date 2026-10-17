@@ -11,10 +11,10 @@
     <relativePath/>
   </parent>
 
-  <groupId>com.copart</groupId>
-  <artifactId>copart-prep</artifactId>
+  <groupId>ticketbooking</groupId>
+  <artifactId>ticket-booking</artifactId>
   <version>0.1.0-SNAPSHOT</version>
-  <name>copart-prep</name>
+  <name>Ticket Booking</name>
 
   <properties>
     <java.version>17</java.version>

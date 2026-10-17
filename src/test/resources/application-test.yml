@@ -1,4 +1,4 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/copart_prep_test
+    url: jdbc:postgresql://localhost:5432/ticket_booking_test
     username: krishna

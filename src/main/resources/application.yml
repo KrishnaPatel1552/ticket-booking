@@ -1,6 +1,8 @@
 spring:
+  application:
+    name: ticket-booking
   datasource:
-    url: jdbc:postgresql://localhost:5432/copart_prep
+    url: jdbc:postgresql://localhost:5432/ticket_booking
     username: krishna
   jpa:
     open-in-view: false

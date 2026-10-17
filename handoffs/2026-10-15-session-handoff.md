@@ -1,7 +1,7 @@
-# Handoff: Copart ticket-booking take-home
+# Handoff: Ticket Booking
 
 Date: Thursday 15 October 2026, afternoon ET.
-Repo: `/Users/krishna/copart-prep` on `main`.
+Repo: `/Users/krishna/ticket-booking` on `main`.
 No application code has been written.
 
 ## Where to start

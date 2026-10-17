@@ -1,6 +1,6 @@
 # Booking spec for Monday
 
-Canonical map: https://github.com/KrishnaPatel1552/copart-prep/issues/2
+Canonical map: https://github.com/KrishnaPatel1552/ticket-booking/issues/2
 
 This map is closed. The PRD and spec in this folder are the destination, and they are written. The nine decision tickets, including whether the seat map updates by itself, are closed child issues of that map.
 

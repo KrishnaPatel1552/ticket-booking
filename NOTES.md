@@ -1,6 +1,6 @@
 # Notes
 
-These notes are for a reader grading the decisions. The behavior is the code on `integration/monday-booking`, checked against the HTTP tests. The words are the ones in `CONTEXT.md`: customer, admin, venue, section, seat, event, hold, block, order, checkout, payment, ticket, waitlist entry, cancel, refund, event cancellation, reschedule, price tier, early-bird, group rate, promo code, service fee, override, and audit entry.
+These notes are for a reader grading the decisions. The behavior is the code on `ticket-booking`, checked against the HTTP tests. The words are the ones in `CONTEXT.md`: customer, admin, venue, section, seat, event, hold, block, order, checkout, payment, ticket, waitlist entry, cancel, refund, event cancellation, reschedule, price tier, early-bird, group rate, promo code, service fee, override, and audit entry.
 
 ## Decisions the code carries
 

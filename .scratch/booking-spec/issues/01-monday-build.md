@@ -1,4 +1,4 @@
-> Canonical ticket: https://github.com/KrishnaPatel1552/copart-prep/issues/9
+> Canonical ticket: https://github.com/KrishnaPatel1552/ticket-booking/issues/9
 > Closed as #9. This file is the archive. The resolution comment on the issue is the answer.
 
 # What Monday's build includes
