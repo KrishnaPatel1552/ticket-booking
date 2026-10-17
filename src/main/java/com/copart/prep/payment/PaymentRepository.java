@@ -10,6 +10,14 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     Optional<Payment> findByOrder_Id(long orderId);
 
     @Query("""
+            select coalesce(sum(payment.amountCents), 0)
+            from Payment payment
+            where payment.order.event.id = :eventId
+              and payment.status = com.copart.prep.payment.PaymentStatus.SUCCEEDED
+            """)
+    long sumSucceededAmountCents(@Param("eventId") long eventId);
+
+    @Query("""
             select payment
             from Payment payment
             where payment.order.id = :orderId

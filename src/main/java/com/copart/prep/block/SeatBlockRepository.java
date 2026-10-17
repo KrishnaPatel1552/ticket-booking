@@ -9,4 +9,6 @@ public interface SeatBlockRepository extends JpaRepository<SeatBlock, Long> {
     List<SeatBlock> findByEventIdAndActiveTrue(Long eventId);
 
     Optional<SeatBlock> findByEventIdAndSeatIdAndActiveTrue(Long eventId, Long seatId);
+
+    long countByEventIdAndActiveTrue(Long eventId);
 }
