@@ -91,6 +91,12 @@ export type RefundView = {
   amountCents: number;
 };
 
+export type HoldView = {
+  seatId: number;
+  label: string;
+  heldUntil: string;
+};
+
 export type OrderView = {
   id: number;
   eventId: number;
@@ -98,7 +104,31 @@ export type OrderView = {
   payment: { status: PaymentStatus; amountCents: number } | null;
   tickets: TicketView[];
   refunds: RefundView[];
+  holds: HoldView[];
 };
+
+export type WaitlistPlace = {
+  place: number;
+  orderId: number | null;
+};
+
+export async function joinWaitlist(eventId: number): Promise<WaitlistPlace> {
+  const response = await fetch(`/api/events/${eventId}/waitlist`, {
+    method: "POST",
+    credentials: "include",
+  });
+  return readJson<WaitlistPlace>(response);
+}
+
+export async function fetchWaitlist(eventId: number): Promise<WaitlistPlace | null> {
+  const response = await fetch(`/api/events/${eventId}/waitlist`, {
+    credentials: "include",
+  });
+  if (response.status === 404) {
+    return null;
+  }
+  return readJson<WaitlistPlace>(response);
+}
 
 export async function holdSeats(eventId: number, seatIds: number[]): Promise<HeldSeats> {
   const response = await fetch(`/api/events/${eventId}/holds`, {
