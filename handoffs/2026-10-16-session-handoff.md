@@ -1,9 +1,9 @@
 # Handoff: Booking spec for Monday
 
-The route below was true when this session ended. Both maps are now closed on GitHub. Start at [Booking spec for Monday](https://github.com/KrishnaPatel1552/copart-prep/issues/2). The seat-map fog in this handoff is [Whether the seat map updates by itself](https://github.com/KrishnaPatel1552/copart-prep/issues/17).
+The route below was true when this session ended. Both maps are now closed on GitHub. Start at [Booking spec for Monday](https://github.com/KrishnaPatel1552/ticket-booking/issues/2). The seat-map fog in this handoff is [Whether the seat map updates by itself](https://github.com/KrishnaPatel1552/ticket-booking/issues/17).
 
 Date: Friday 16 October 2026, late afternoon ET.
-Repo: `/Users/krishna/copart-prep` on `main`.
+Repo: `/Users/krishna/ticket-booking` on `main`.
 No application code has been written.
 
 ## Where to start

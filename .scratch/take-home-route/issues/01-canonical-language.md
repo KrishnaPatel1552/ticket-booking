@@ -1,4 +1,4 @@
-> Canonical ticket: https://github.com/KrishnaPatel1552/copart-prep/issues/4
+> Canonical ticket: https://github.com/KrishnaPatel1552/ticket-booking/issues/4
 > Closed as #4. This file is the archive. The resolution comment on the issue is the answer.
 
 # Canonical language for the booking domain

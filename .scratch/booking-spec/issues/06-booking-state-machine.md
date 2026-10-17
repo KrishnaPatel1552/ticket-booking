@@ -1,4 +1,4 @@
-> Canonical ticket: https://github.com/KrishnaPatel1552/copart-prep/issues/15
+> Canonical ticket: https://github.com/KrishnaPatel1552/ticket-booking/issues/15
 > Closed as #15. This file is the archive. The resolution comment on the issue is the answer.
 
 # Booking state machine

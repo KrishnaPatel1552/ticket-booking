@@ -1,4 +1,4 @@
-> Canonical ticket: https://github.com/KrishnaPatel1552/copart-prep/issues/12
+> Canonical ticket: https://github.com/KrishnaPatel1552/ticket-booking/issues/12
 > Closed as #12. This file is the archive. The resolution comment on the issue is the answer.
 
 # Clock and whole cents

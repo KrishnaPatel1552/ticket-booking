@@ -1,4 +1,4 @@
-> Canonical ticket: https://github.com/KrishnaPatel1552/copart-prep/issues/16
+> Canonical ticket: https://github.com/KrishnaPatel1552/ticket-booking/issues/16
 > Closed as #16. This file is the archive. The resolution comment on the issue is the answer.
 
 # Refund state machine

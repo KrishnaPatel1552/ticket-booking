@@ -1,4 +1,4 @@
-> Canonical ticket: https://github.com/KrishnaPatel1552/copart-prep/issues/3
+> Canonical ticket: https://github.com/KrishnaPatel1552/ticket-booking/issues/3
 > Closed as #3. This file is the archive. The resolution comment on the issue is the answer.
 
 # Double-sell prevention for the design note

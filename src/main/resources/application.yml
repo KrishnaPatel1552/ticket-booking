@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: ticket-booking
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ticket_booking
+    username: krishna
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+server:
+  port: 8080

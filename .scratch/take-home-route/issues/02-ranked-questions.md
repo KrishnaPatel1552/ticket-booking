@@ -1,4 +1,4 @@
-> Canonical ticket: https://github.com/KrishnaPatel1552/copart-prep/issues/5
+> Canonical ticket: https://github.com/KrishnaPatel1552/ticket-booking/issues/5
 > Closed as #5. This file is the archive. The resolution comment on the issue is the answer.
 
 # Ranked questions for today's reply
