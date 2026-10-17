@@ -105,8 +105,8 @@ function SeatMark({ kind }: { kind: SeatMarkKind }) {
   return (
     <span className={`mark mark-${kind}`} data-mark={kind} aria-hidden="true">
       {kind === "check" ? "✓" : null}
-      {kind === "hash" ? "#×" : null}
-      {kind === "slash" ? "/" : null}
+      {kind === "hash" ? "×" : null}
+      {kind === "slash" ? "∕" : null}
     </span>
   );
 }
@@ -444,8 +444,11 @@ export default function App() {
       ) : (
         <section className="opened-event">
           <h2 className="event-name">{openedEvent.name}</h2>
-          <p>{openedEvent.venueName}</p>
-          <p>{formatWhen(openedEvent.startsAt, openedEvent.timeZone)}</p>
+          <p className="event-meta">
+            {openedEvent.venueName}
+            <span aria-hidden="true"> · </span>
+            {formatWhen(openedEvent.startsAt, openedEvent.timeZone)}
+          </p>
         </section>
       )}
       {opening ? <p className="status">Loading the seat map…</p> : null}
@@ -462,39 +465,7 @@ export default function App() {
         </section>
       ) : seatMap != null ? (
         <section className="map">
-          <div className="hold-bar">
-            <button
-              type="button"
-              className="primary"
-              onClick={() => void submitHold()}
-              disabled={holding || selectedSeatIds.length === 0}
-            >
-              {holding ? "Holding…" : "Hold seats"}
-            </button>
-            <p>{selectedSeatIds.length === 0 ? "Select free seats to hold." : `${selectedSeatIds.length} selected`}</p>
-            {selectedSeatIds.length > 0 ? (
-              <p className="ticket-total">Ticket total {formatCents(ticketTotalCents)}</p>
-            ) : null}
-            {holdError != null ? <p className="error">{holdError}</p> : null}
-          </div>
-          <div className="hold-bar">
-            {waitlist != null ? (
-              <p>You are number {waitlist.place} in line.</p>
-            ) : seatMap.sections.every((section) => section.seats.every((seat) => seat.state !== "free")) ? (
-              <button type="button" className="waitlist" onClick={() => void submitJoin()} disabled={joining}>
-                {joining ? "Joining…" : "Join waitlist"}
-              </button>
-            ) : null}
-            {offeredHolds.length > 0 ? (
-              <p>
-                Held for you: {offeredHolds.map((hold) => hold.label).join(", ")} until{" "}
-                {formatWhen(offeredHolds[0].heldUntil, seatMap.timeZone)}
-              </p>
-            ) : null}
-            {joinError != null ? <p className="error">{joinError}</p> : null}
-          </div>
           {priceTierLine(seatMap) != null ? <p className="price-line">{priceTierLine(seatMap)}</p> : null}
-          <p className="stage">Stage</p>
           <ul className="legend" aria-label="Legend">
             {legendMarks.map((item) => (
               <li key={item.word}>
@@ -503,6 +474,7 @@ export default function App() {
               </li>
             ))}
           </ul>
+          <p className="stage">Stage</p>
           {seatMap.sections.map((section) => {
             const rows = seatRows(section.seats);
             const tabStopId =
@@ -515,6 +487,11 @@ export default function App() {
                 <div className="seat-grid" role="grid" aria-labelledby={`section-${section.name}`}>
                   {rows.map((row) => (
                     <div key={row.key} className="seat-row" role="row">
+                      {row.key === "other" ? null : (
+                        <span className="row-label" aria-hidden="true">
+                          {row.key}
+                        </span>
+                      )}
                       {row.seats.map((seat) => {
                         const selected = seat.state === "free" && selectedSeatIds.includes(seat.id);
                         const word = selected ? "selected" : seat.state;
@@ -544,12 +521,12 @@ export default function App() {
                               onKeyDown={(event) => onSeatKeyDown(section.name, section.seats, seat, event)}
                               onClick={() => toggleSeat(seat)}
                             >
-                              <SeatMark kind={markKind(seat.state, selected)} />
                               <span className="label">{seat.label}</span>
+                              <SeatMark kind={markKind(seat.state, selected)} />
+                              <span className="state">{word}</span>
                               {seat.state === "free" ? (
                                 <span className="price">{formatCents(currentPriceCents(seatMap, seat, pricedAt))}</span>
                               ) : null}
-                              <span className="state">{word}</span>
                             </button>
                           </div>
                         );
@@ -560,6 +537,46 @@ export default function App() {
               </div>
             );
           })}
+          {waitlist != null ||
+          offeredHolds.length > 0 ||
+          joinError != null ||
+          seatMap.sections.every((section) => section.seats.every((seat) => seat.state !== "free")) ? (
+            <div className="hold-bar">
+              {waitlist != null ? (
+                <p>You are number {waitlist.place} in line.</p>
+              ) : seatMap.sections.every((section) => section.seats.every((seat) => seat.state !== "free")) ? (
+                <button type="button" className="waitlist" onClick={() => void submitJoin()} disabled={joining}>
+                  {joining ? "Joining…" : "Join waitlist"}
+                </button>
+              ) : null}
+              {offeredHolds.length > 0 ? (
+                <p>
+                  Held for you: {offeredHolds.map((hold) => hold.label).join(", ")} until{" "}
+                  {formatWhen(offeredHolds[0].heldUntil, seatMap.timeZone)}
+                </p>
+              ) : null}
+              {joinError != null ? <p className="error">{joinError}</p> : null}
+            </div>
+          ) : null}
+          <div className="selection-bar">
+            <div className="selection-copy">
+              <p>{selectedSeatIds.length === 0 ? "Select free seats to hold." : `${selectedSeatIds.length} selected`}</p>
+              {selectedSeatIds.length > 0 ? (
+                <p className="ticket-total">Ticket total {formatCents(ticketTotalCents)}</p>
+              ) : null}
+            </div>
+            <div className="hold-action">
+              <button
+                type="button"
+                className="primary"
+                onClick={() => void submitHold()}
+                disabled={holding || selectedSeatIds.length === 0}
+              >
+                {holding ? "Holding…" : "Hold seats"}
+              </button>
+              {holdError != null ? <p className="error">{holdError}</p> : null}
+            </div>
+          </div>
         </section>
       ) : null}
     </main>
