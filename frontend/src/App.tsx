@@ -343,6 +343,16 @@ export default function App() {
     );
   }
 
+  function openOfferedHold() {
+    if (offeredHolds.length === 0) {
+      return;
+    }
+    setConfirmedHold({
+      labels: offeredHolds.map((hold) => hold.label),
+      heldUntil: offeredHolds[0].heldUntil,
+    });
+  }
+
   async function submitHold() {
     if (seatMap == null || selectedSeatIds.length === 0) {
       return;
@@ -542,18 +552,23 @@ export default function App() {
           joinError != null ||
           seatMap.sections.every((section) => section.seats.every((seat) => seat.state !== "free")) ? (
             <div className="hold-bar">
-              {waitlist != null ? (
+              {offeredHolds.length > 0 ? (
+                <a
+                  className="offered-hold"
+                  href="#hold"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    openOfferedHold();
+                  }}
+                >
+                  Held for you: {offeredHolds.map((hold) => hold.label).join(", ")}
+                </a>
+              ) : waitlist != null ? (
                 <p>You are number {waitlist.place} in line.</p>
               ) : seatMap.sections.every((section) => section.seats.every((seat) => seat.state !== "free")) ? (
                 <button type="button" className="waitlist" onClick={() => void submitJoin()} disabled={joining}>
                   {joining ? "Joining…" : "Join waitlist"}
                 </button>
-              ) : null}
-              {offeredHolds.length > 0 ? (
-                <p>
-                  Held for you: {offeredHolds.map((hold) => hold.label).join(", ")} until{" "}
-                  {formatWhen(offeredHolds[0].heldUntil, seatMap.timeZone)}
-                </p>
               ) : null}
               {joinError != null ? <p className="error">{joinError}</p> : null}
             </div>
