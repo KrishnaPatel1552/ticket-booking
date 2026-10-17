@@ -1,6 +1,7 @@
 package com.copart.prep.checkout;
 
 import com.copart.prep.clock.AppClock;
+import com.copart.prep.event.Event;
 import com.copart.prep.hold.CustomerOrder;
 import com.copart.prep.hold.CustomerOrderRepository;
 import com.copart.prep.hold.EventSeat;
@@ -13,6 +14,7 @@ import com.copart.prep.refund.RefundStatus;
 import com.copart.prep.signin.Account;
 import com.copart.prep.signin.AccountRepository;
 import jakarta.persistence.EntityManager;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -75,7 +77,7 @@ public class RecordPendingRefund {
         Integer repaired = failedAmountForSameTickets(orderId, tickets);
         int amount = repaired != null
                 ? repaired
-                : amountCents(tickets, now, order.getEvent().getStartsAt());
+                : amountCents(tickets, now, order.getEvent());
         Refund refund = new Refund(order, amount, RefundStatus.PENDING, now, RefundKind.CUSTOMER_CANCEL);
         for (EventSeat ticket : tickets) {
             refund.addTicket(ticket);
@@ -116,12 +118,30 @@ public class RecordPendingRefund {
         return amount;
     }
 
-    private static int amountCents(List<EventSeat> tickets, Instant now, Instant startsAt) {
+    private static int amountCents(List<EventSeat> tickets, Instant now, Event event) {
+        if (withinRescheduleWindow(now, event.getRescheduledAt())) {
+            int amount = 0;
+            for (EventSeat ticket : tickets) {
+                amount += net(ticket) + ticket.getFeeShareCents();
+            }
+            return amount;
+        }
         int amount = 0;
         for (EventSeat ticket : tickets) {
-            int net = ticket.getStartingPriceCents() - ticket.getGroupShareCents() - ticket.getPromoShareCents();
-            amount += RefundBand.cents(net, now, startsAt);
+            amount += RefundBand.cents(net(ticket), now, event.getStartsAt());
         }
         return amount;
+    }
+
+    private static boolean withinRescheduleWindow(Instant now, Instant override) {
+        if (override == null) {
+            return false;
+        }
+        Duration elapsed = Duration.between(override, now);
+        return !elapsed.isNegative() && elapsed.compareTo(Duration.ofHours(336)) <= 0;
+    }
+
+    private static int net(EventSeat ticket) {
+        return ticket.getStartingPriceCents() - ticket.getGroupShareCents() - ticket.getPromoShareCents();
     }
 }

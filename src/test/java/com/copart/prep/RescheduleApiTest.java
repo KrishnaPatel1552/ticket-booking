@@ -384,6 +384,269 @@ class RescheduleApiTest {
         assertThat(seatState(map, "A1")).isEqualTo("ticket");
     }
 
+    @Test
+    void atExactly336HoursACustomerCancelReturnsTheFullNetPlusTheFeeShare() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-01T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        long orderId = holdAndCheckout(ada, eventId, List.of(a1));
+        JsonNode bought = ada.get("/api/orders/" + orderId).getBody();
+        assertThat(bought.get("payment").get("amountCents").asInt()).isEqualTo(4100);
+        assertThat(bought.get("tickets").get(0).get("startingPriceCents").asInt()).isEqualTo(4000);
+        assertThat(bought.get("tickets").get(0).get("feeShareCents").asInt()).isEqualTo(100);
+
+        assertThat(admin.post("/api/admin/events/" + eventId + "/reschedule", java.util.Map.of(
+                "startsAt", "2026-11-01T15:00:01Z",
+                "reason", "The venue asked once")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(admin.post("/api/admin/events/" + eventId + "/reschedule", java.util.Map.of(
+                "startsAt", "2026-11-01T15:00:01Z",
+                "reason", "The venue asked again")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-30T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        ResponseEntity<JsonNode> cancelled = ada.post("/api/orders/" + orderId + "/cancel", java.util.Map.of(
+                "seatIds", List.of(a1),
+                "mock", "success"));
+
+        assertThat(cancelled.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode order = cancelled.getBody();
+        assertThat(order.get("refunds")).hasSize(1);
+        assertThat(order.get("refunds").get(0).get("status").asText()).isEqualTo("succeeded");
+        assertThat(order.get("refunds").get(0).get("amountCents").asInt()).isEqualTo(4100);
+        assertThat(ticketLabels(order)).isEmpty();
+        JsonNode map = ada.get("/api/events/" + eventId).getBody();
+        assertThat(map.get("startsAt").asText()).isEqualTo("2026-11-01T15:00:01Z");
+        assertThat(seatState(map, "A1")).isEqualTo("free");
+        JsonNode entries = admin.get("/api/admin/events/" + eventId + "/audit-entries").getBody();
+        assertThat(entries).hasSize(2);
+        assertThat(entries.get(0).get("kind").asText()).isEqualTo("reschedule");
+        assertThat(entries.get(0).get("recordedAt").asText()).isEqualTo("2026-10-01T15:00:00Z");
+        assertThat(entries.get(1).get("kind").asText()).isEqualTo("reschedule");
+        assertThat(entries.get(1).get("reason").asText()).isEqualTo("The venue asked again");
+        assertThat(entries.get(1).get("recordedAt").asText()).isEqualTo("2026-10-16T15:00:00Z");
+    }
+
+    @Test
+    void oneSecondAfter336HoursTheHalfBandKeepsTheFee() {
+        int refund = cancelOneSecondAfterTheWindow("2026-11-01T15:00:01Z");
+        assertThat(refund).isEqualTo(2000);
+    }
+
+    @Test
+    void oneSecondAfter336HoursTheFullBandKeepsTheFee() {
+        int refund = cancelOneSecondAfterTheWindow("2026-11-06T15:00:01Z");
+        assertThat(refund).isEqualTo(4000);
+    }
+
+    @Test
+    void oneSecondAfter336HoursTheZeroBandKeepsTheFee() {
+        int refund = cancelOneSecondAfterTheWindow("2026-11-01T15:00:00Z");
+        assertThat(refund).isEqualTo(0);
+    }
+
+    @Test
+    void aTwentyFiveHourLocalDayDoesNotStretchThe336HourWindow() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        long orderId = holdAndCheckout(ada, eventId, List.of(a1));
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-31T04:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(admin.post("/api/admin/events/" + eventId + "/reschedule", java.util.Map.of(
+                "startsAt", "2026-11-15T04:00:01Z",
+                "reason", "The venue moved the date")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-11-14T04:00:01Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        ResponseEntity<JsonNode> cancelled = ada.post("/api/orders/" + orderId + "/cancel", java.util.Map.of(
+                "seatIds", List.of(a1),
+                "mock", "success"));
+
+        assertThat(cancelled.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(cancelled.getBody().get("refunds").get(0).get("amountCents").asInt()).isEqualTo(0);
+        assertThat(ticketLabels(cancelled.getBody())).isEmpty();
+    }
+
+    @Test
+    void aFeeShareAlreadyKeptOnAnEarlierCancelStaysKept() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        long a2 = seatId(opened, "A2");
+        long orderId = holdAndCheckout(ada, eventId, List.of(a1, a2));
+        JsonNode bought = ada.get("/api/orders/" + orderId).getBody();
+        assertThat(bought.get("payment").get("amountCents").asInt()).isEqualTo(8100);
+        assertThat(bought.get("tickets").get(0).get("feeShareCents").asInt()).isEqualTo(50);
+        assertThat(bought.get("tickets").get(1).get("feeShareCents").asInt()).isEqualTo(50);
+
+        assertThat(ada.post("/api/orders/" + orderId + "/cancel", java.util.Map.of(
+                "seatIds", List.of(a1),
+                "mock", "success")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ada.get("/api/orders/" + orderId).getBody().get("refunds").get(0).get("amountCents").asInt())
+                .isEqualTo(4000);
+
+        assertThat(admin.post("/api/admin/events/" + eventId + "/reschedule", java.util.Map.of(
+                "startsAt", "2026-11-01T15:00:01Z",
+                "reason", "The venue moved the date")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        ResponseEntity<JsonNode> cancelled = ada.post("/api/orders/" + orderId + "/cancel", java.util.Map.of(
+                "seatIds", List.of(a2),
+                "mock", "success"));
+
+        assertThat(cancelled.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(refundAmounts(cancelled.getBody())).containsExactly(4000, 4050);
+        assertThat(cancelled.getBody().get("refunds").get(1).get("status").asText()).isEqualTo("succeeded");
+        assertThat(ticketLabels(cancelled.getBody())).isEmpty();
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("free");
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A2")).isEqualTo("free");
+    }
+
+    @Test
+    void aRescheduleAndIts336HourRefundDoNotRestoreAPromoUse() {
+        ApiSession admin = signIn("admin@example.com");
+        String code = createPromo(admin, 200);
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        long later = createEvent(admin, "2027-01-15T01:00:00Z");
+        long afterRefund = createEvent(admin, "2027-02-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long adaOrder = holdAttachAndCheckout(ada, eventId, seatId(opened, "A1"), code);
+        assertThat(ada.get("/api/orders/" + adaOrder).getBody().get("payment").get("amountCents").asInt())
+                .isEqualTo(3900);
+
+        JsonNode laterMap = grace.get("/api/events/" + later).getBody();
+        long blocked = holdAttachAndCheckout(grace, later, seatId(laterMap, "A1"), code);
+        assertThat(grace.get("/api/orders/" + blocked).getBody().get("payment").get("amountCents").asInt())
+                .isEqualTo(4100);
+
+        assertThat(admin.post("/api/admin/events/" + eventId + "/reschedule", java.util.Map.of(
+                "startsAt", "2026-11-01T15:00:01Z",
+                "reason", "The venue moved the date")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode stillBlocked = grace.get("/api/events/" + later).getBody();
+        long afterMove = holdAttachAndCheckout(grace, later, seatId(stillBlocked, "A2"), code);
+        assertThat(grace.get("/api/orders/" + afterMove).getBody().get("payment").get("amountCents").asInt())
+                .isEqualTo(4100);
+
+        ResponseEntity<JsonNode> cancelled = ada.post("/api/orders/" + adaOrder + "/cancel", java.util.Map.of(
+                "seatIds", List.of(seatId(opened, "A1")),
+                "mock", "success"));
+        assertThat(cancelled.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(cancelled.getBody().get("refunds").get(0).get("amountCents").asInt()).isEqualTo(3900);
+        assertThat(cancelled.getBody().get("promoCode").asText()).isEqualTo(code);
+
+        JsonNode afterMap = grace.get("/api/events/" + afterRefund).getBody();
+        long stillUsed = holdAttachAndCheckout(grace, afterRefund, seatId(afterMap, "A1"), code);
+        assertThat(grace.get("/api/orders/" + stillUsed).getBody().get("payment").get("amountCents").asInt())
+                .isEqualTo(4100);
+    }
+
+    @Test
+    void aRefundCommittedBeforeTheRescheduleKeepsItsCents() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        long a2 = seatId(opened, "A2");
+        long orderId = holdAndCheckout(ada, eventId, List.of(a1, a2));
+        assertThat(ada.post("/api/orders/" + orderId + "/cancel", java.util.Map.of(
+                "seatIds", List.of(a1),
+                "mock", "timeout")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ada.get("/api/orders/" + orderId).getBody().get("refunds").get(0).get("amountCents").asInt())
+                .isEqualTo(4000);
+
+        assertThat(admin.post("/api/admin/events/" + eventId + "/reschedule", java.util.Map.of(
+                "startsAt", "2026-11-01T15:00:01Z",
+                "reason", "The venue moved the date")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode lookedUp = ada.get("/api/orders/" + orderId + "?refundLookup=success").getBody();
+        assertThat(lookedUp.get("refunds")).hasSize(1);
+        assertThat(lookedUp.get("refunds").get(0).get("status").asText()).isEqualTo("succeeded");
+        assertThat(lookedUp.get("refunds").get(0).get("amountCents").asInt()).isEqualTo(4000);
+        assertThat(ticketLabels(lookedUp)).containsExactly("A2");
+
+        ResponseEntity<JsonNode> fresh = ada.post("/api/orders/" + orderId + "/cancel", java.util.Map.of(
+                "seatIds", List.of(a2),
+                "mock", "success"));
+        assertThat(fresh.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(refundAmounts(fresh.getBody())).containsExactly(4000, 4050);
+    }
+
+    private int cancelOneSecondAfterTheWindow(String startsAt) {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        long orderId = holdAndCheckout(ada, eventId, List.of(a1));
+        assertThat(admin.post("/api/admin/events/" + eventId + "/reschedule", java.util.Map.of(
+                "startsAt", startsAt,
+                "reason", "The venue moved the date")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-30T15:00:01Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        ResponseEntity<JsonNode> cancelled = ada.post("/api/orders/" + orderId + "/cancel", java.util.Map.of(
+                "seatIds", List.of(a1),
+                "mock", "success"));
+        assertThat(cancelled.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ticketLabels(cancelled.getBody())).isEmpty();
+        assertThat(cancelled.getBody().get("refunds").get(0).get("status").asText()).isEqualTo("succeeded");
+        JsonNode map = ada.get("/api/events/" + eventId).getBody();
+        assertThat(map.get("startsAt").asText()).isEqualTo(startsAt);
+        return cancelled.getBody().get("refunds").get(0).get("amountCents").asInt();
+    }
+
+    private long holdAttachAndCheckout(ApiSession customer, long eventId, long seatId, String code) {
+        ResponseEntity<JsonNode> held = customer.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(seatId)));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+        assertThat(customer.post("/api/orders/" + orderId + "/promo-code", java.util.Map.of("code", code))
+                .getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(customer.post("/api/orders/" + orderId + "/checkout", java.util.Map.of(
+                "seatIds", List.of(seatId),
+                "mock", "success")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        return orderId;
+    }
+
+    private String createPromo(ApiSession admin, int discountCents) {
+        String code = "MOVE-" + UUID.randomUUID();
+        ResponseEntity<JsonNode> created = admin.post("/api/admin/promo-codes", java.util.Map.of(
+                "code", code,
+                "discountCents", discountCents,
+                "globalLimit", 1,
+                "perCustomerLimit", 1,
+                "exclusive", false));
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        return code;
+    }
+
+    private static List<Integer> refundAmounts(JsonNode order) {
+        List<Integer> amounts = new java.util.ArrayList<>();
+        for (JsonNode refund : order.get("refunds")) {
+            amounts.add(refund.get("amountCents").asInt());
+        }
+        return amounts;
+    }
+
     private void insertSucceededPayment(long orderId, int amountCents, Instant createdAt) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(
