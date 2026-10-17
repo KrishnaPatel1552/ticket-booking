@@ -54,6 +54,71 @@ class RescheduleApiTest {
         assertThat(entries.getBody().get(0).get("recordedAt").asText()).isEqualTo("2026-10-16T15:00:00Z");
     }
 
+    @Test
+    void aCustomerIsRefusedAReschedule() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<JsonNode> refused = ada.post("/api/admin/events/" + eventId + "/reschedule", java.util.Map.of(
+                "startsAt", "2027-03-01T01:00:00Z",
+                "reason", "I cannot attend"));
+
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        JsonNode map = ada.get("/api/events/" + eventId).getBody();
+        assertThat(map.get("startsAt").asText()).isEqualTo("2026-12-15T01:00:00Z");
+        assertThat(seatState(map, "A1")).isEqualTo("free");
+        assertThat(admin.get("/api/admin/events/" + eventId + "/audit-entries").getBody()).isEmpty();
+    }
+
+    @Test
+    void aRescheduleWithoutAReasonIsRefused() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        String path = "/api/admin/events/" + eventId + "/reschedule";
+
+        assertThat(admin.post(path, java.util.Map.of("startsAt", "2027-03-01T01:00:00Z", "reason", "")).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(admin.post(path, java.util.Map.of("startsAt", "2027-03-01T01:00:00Z", "reason", "   ")).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(admin.post(path, java.util.Map.of("startsAt", "2027-03-01T01:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+
+        JsonNode map = ada.get("/api/events/" + eventId).getBody();
+        assertThat(map.get("startsAt").asText()).isEqualTo("2026-12-15T01:00:00Z");
+        assertThat(seatState(map, "A1")).isEqualTo("free");
+        assertThat(admin.get("/api/admin/events/" + eventId + "/audit-entries").getBody()).isEmpty();
+    }
+
+    @Test
+    void aCancelledEventIsRefusedAReschedule() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(admin.post("/api/admin/events/" + eventId + "/cancellation", java.util.Map.of(
+                "reason", "The artist is ill",
+                "mock", "success")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<JsonNode> refused = admin.post("/api/admin/events/" + eventId + "/reschedule", java.util.Map.of(
+                "startsAt", "2027-03-01T01:00:00Z",
+                "reason", "The venue moved the date"));
+
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode map = ada.get("/api/events/" + eventId).getBody();
+        assertThat(map.get("startsAt").asText()).isEqualTo("2026-12-15T01:00:00Z");
+        assertThat(seatState(map, "A1")).isEqualTo("blocked");
+        JsonNode entries = admin.get("/api/admin/events/" + eventId + "/audit-entries").getBody();
+        assertThat(entries).hasSize(1);
+        assertThat(entries.get(0).get("kind").asText()).isEqualTo("event-cancellation");
+    }
+
     private long createEvent(ApiSession admin, String startsAt) {
         long venueId = admin.get("/api/events?name=lights").getBody().get(0).get("venueId").asLong();
         String name = "Reschedule-" + UUID.randomUUID();

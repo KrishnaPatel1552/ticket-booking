@@ -40,6 +40,9 @@ public class RecordReschedule {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED));
         Event event = events.findById(eventId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        if (event.isCancelled()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT);
+        }
         Instant now = clock.now();
         event.reschedule(startsAt, now);
         auditEntries.save(new AuditEntry(admin, event, null, AuditKind.RESCHEDULE, reason, now));
