@@ -119,6 +119,94 @@ class RescheduleApiTest {
         assertThat(entries.get(0).get("kind").asText()).isEqualTo("event-cancellation");
     }
 
+    @Test
+    void ticketsStayOnTheOrderAndNothingIsRefunded() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        long orderId = holdAndCheckout(ada, eventId, List.of(a1));
+        JsonNode before = ada.get("/api/orders/" + orderId).getBody();
+        assertThat(before.get("payment").get("amountCents").asInt()).isEqualTo(4100);
+        assertThat(before.get("tickets").get(0).get("startingPriceCents").asInt()).isEqualTo(4000);
+        assertThat(before.get("tickets").get(0).get("feeShareCents").asInt()).isEqualTo(100);
+
+        assertThat(admin.post("/api/admin/events/" + eventId + "/reschedule", java.util.Map.of(
+                "startsAt", "2027-03-01T01:00:00Z",
+                "reason", "The venue moved the date")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        JsonNode order = ada.get("/api/orders/" + orderId).getBody();
+        assertThat(order.get("payment").get("status").asText()).isEqualTo("succeeded");
+        assertThat(order.get("payment").get("amountCents").asInt()).isEqualTo(4100);
+        assertThat(ticketLabels(order)).containsExactly("A1");
+        assertThat(order.get("refunds")).isEmpty();
+        JsonNode map = ada.get("/api/events/" + eventId).getBody();
+        assertThat(map.get("startsAt").asText()).isEqualTo("2027-03-01T01:00:00Z");
+        assertThat(seatState(map, "A1")).isEqualTo("ticket");
+        assertThat(grace.post("/api/events/" + eventId + "/holds", java.util.Map.of("seatIds", List.of(a1)))
+                .getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void aBareHoldEndsAndNothingIsRefunded() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(a1)));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+        assertThat(ada.get("/api/orders/" + orderId).getBody().get("holds")).hasSize(1);
+
+        assertThat(admin.post("/api/admin/events/" + eventId + "/reschedule", java.util.Map.of(
+                "startsAt", "2027-03-01T01:00:00Z",
+                "reason", "The venue moved the date")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        JsonNode order = ada.get("/api/orders/" + orderId).getBody();
+        assertThat(order.get("payment").isNull()).isTrue();
+        assertThat(order.get("holds")).isEmpty();
+        assertThat(order.get("tickets")).isEmpty();
+        assertThat(order.get("refunds")).isEmpty();
+        JsonNode map = grace.get("/api/events/" + eventId).getBody();
+        assertThat(map.get("startsAt").asText()).isEqualTo("2027-03-01T01:00:00Z");
+        assertThat(seatState(map, "A1")).isEqualTo("free");
+        assertThat(grace.post("/api/events/" + eventId + "/holds", java.util.Map.of("seatIds", List.of(a1)))
+                .getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    private long holdAndCheckout(ApiSession customer, long eventId, List<Long> seatIds) {
+        ResponseEntity<JsonNode> held = customer.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", seatIds));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+        ResponseEntity<JsonNode> checkedOut = customer.post("/api/orders/" + orderId + "/checkout", java.util.Map.of(
+                "seatIds", seatIds,
+                "mock", "success"));
+        assertThat(checkedOut.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return orderId;
+    }
+
+    private static List<String> ticketLabels(JsonNode order) {
+        List<String> labels = new java.util.ArrayList<>();
+        for (JsonNode ticket : order.get("tickets")) {
+            labels.add(ticket.get("label").asText());
+        }
+        return labels;
+    }
+
+    private static long seatId(JsonNode event, String label) {
+        return seat(event, label).get("id").asLong();
+    }
+
     private long createEvent(ApiSession admin, String startsAt) {
         long venueId = admin.get("/api/events?name=lights").getBody().get(0).get("venueId").asLong();
         String name = "Reschedule-" + UUID.randomUUID();

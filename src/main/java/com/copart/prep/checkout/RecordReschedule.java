@@ -6,9 +6,12 @@ import com.copart.prep.audit.AuditKind;
 import com.copart.prep.clock.AppClock;
 import com.copart.prep.event.Event;
 import com.copart.prep.event.EventRepository;
+import com.copart.prep.hold.EventSeat;
+import com.copart.prep.hold.EventSeatRepository;
 import com.copart.prep.signin.Account;
 import com.copart.prep.signin.AccountRepository;
 import java.time.Instant;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -21,16 +24,19 @@ public class RecordReschedule {
     private final AccountRepository accounts;
     private final EventRepository events;
     private final AuditEntryRepository auditEntries;
+    private final EventSeatRepository eventSeats;
     private final AppClock clock;
 
     public RecordReschedule(
             AccountRepository accounts,
             EventRepository events,
             AuditEntryRepository auditEntries,
+            EventSeatRepository eventSeats,
             AppClock clock) {
         this.accounts = accounts;
         this.events = events;
         this.auditEntries = auditEntries;
+        this.eventSeats = eventSeats;
         this.clock = clock;
     }
 
@@ -46,5 +52,9 @@ public class RecordReschedule {
         Instant now = clock.now();
         event.reschedule(startsAt, now);
         auditEntries.save(new AuditEntry(admin, event, null, AuditKind.RESCHEDULE, reason, now));
+        List<EventSeat> bareHolds = eventSeats.lockBareHolds(eventId);
+        for (EventSeat hold : bareHolds) {
+            hold.release();
+        }
     }
 }

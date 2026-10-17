@@ -105,4 +105,19 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
               and claim.fromWaitlist = true
             """)
     List<EventSeat> findActiveWaitlistHoldsForEvent(@Param("eventId") long eventId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select claim
+            from EventSeat claim
+            where claim.event.id = :eventId
+              and claim.active = true
+              and claim.kind = com.copart.prep.hold.EventSeatKind.HOLD
+              and not exists (
+                  select payment.id
+                  from Payment payment
+                  where payment.order = claim.order
+              )
+            """)
+    List<EventSeat> lockBareHolds(@Param("eventId") long eventId);
 }
