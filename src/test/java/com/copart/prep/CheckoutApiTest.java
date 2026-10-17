@@ -402,6 +402,35 @@ class CheckoutApiTest {
     }
 
     @Test
+    void aSuccessfulLookupTicketsOnlyTheSeatsSubmittedAtCheckout() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        long a2 = seatId(opened, "A2");
+        long a3 = seatId(opened, "A3");
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(a1, a2, a3)));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+        assertThat(ada.post("/api/orders/" + orderId + "/checkout", java.util.Map.of(
+                "seatIds", List.of(a1, a2),
+                "mock", "unknown")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        JsonNode lookedUp = ada.get("/api/orders/" + orderId + "?lookup=success").getBody();
+
+        assertThat(lookedUp.get("payment").get("status").asText()).isEqualTo("succeeded");
+        assertThat(lookedUp.get("payment").get("amountCents").asInt()).isEqualTo(10100);
+        assertThat(ticketLabels(lookedUp)).containsExactlyInAnyOrder("A1", "A2");
+        assertThat(holdLabels(lookedUp)).containsExactly("A3");
+        JsonNode map = ada.get("/api/events/" + eventId).getBody();
+        assertThat(seatState(map, "A1")).isEqualTo("ticket");
+        assertThat(seatState(map, "A2")).isEqualTo("ticket");
+        assertThat(seatState(map, "A3")).isEqualTo("held");
+    }
+
+    @Test
     void thePendingPaymentIsVisibleBeforeTheMockReturns() throws Exception {
         ApiSession admin = signIn("admin@example.com");
         long eventId = createEvent(admin);
@@ -512,6 +541,14 @@ class CheckoutApiTest {
         List<String> labels = new java.util.ArrayList<>();
         for (JsonNode ticket : order.get("tickets")) {
             labels.add(ticket.get("label").asText());
+        }
+        return labels;
+    }
+
+    private static List<String> holdLabels(JsonNode order) {
+        List<String> labels = new java.util.ArrayList<>();
+        for (JsonNode hold : order.get("holds")) {
+            labels.add(hold.get("label").asText());
         }
         return labels;
     }

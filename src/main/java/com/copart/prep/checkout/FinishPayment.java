@@ -61,12 +61,24 @@ public class FinishPayment {
 
     private void writeTickets(Payment payment) {
         payment.mark(PaymentStatus.SUCCEEDED);
-        List<EventSeat> written = new ArrayList<>();
-        for (EventSeat claim : eventSeats.lockActiveOnOrder(payment.getOrder().getId())) {
-            if (claim.getKind() == EventSeatKind.HOLD) {
-                claim.becomeTicket();
-                written.add(claim);
+        List<EventSeat> claims = eventSeats.lockActiveOnOrder(payment.getOrder().getId());
+        boolean priced = false;
+        for (EventSeat claim : claims) {
+            if (claim.getKind() == EventSeatKind.HOLD && claim.getStartingPriceCents() != null) {
+                priced = true;
+                break;
             }
+        }
+        List<EventSeat> written = new ArrayList<>();
+        for (EventSeat claim : claims) {
+            if (claim.getKind() != EventSeatKind.HOLD) {
+                continue;
+            }
+            if (priced && claim.getStartingPriceCents() == null) {
+                continue;
+            }
+            claim.becomeTicket();
+            written.add(claim);
         }
         refundIfEventCancelled(payment, written);
     }
