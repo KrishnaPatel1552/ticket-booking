@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
   attachPromoCode,
+  checkout,
   fetchOrder,
   fetchSaleTerms,
   fetchSeatMap,
@@ -12,6 +13,9 @@ import {
   type EventSeatMap,
   type EventSummary,
   type HoldView,
+  type OrderView,
+  type PaymentMock,
+  type PaymentStatus,
   type SaleTermsView,
   type SeatState,
   type SeatView,
@@ -242,6 +246,11 @@ export default function App() {
   const [promoDraft, setPromoDraft] = useState("");
   const [promoError, setPromoError] = useState<string | null>(null);
   const [attaching, setAttaching] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [paymentMock, setPaymentMock] = useState<PaymentMock | null>(null);
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus | null>(null);
+  const [paidOrder, setPaidOrder] = useState<OrderView | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [tabStops, setTabStops] = useState<Record<string, number>>({});
   const [focusedSeatId, setFocusedSeatId] = useState<number | null>(null);
   const seatRefs = useRef(new Map<number, HTMLButtonElement>());
@@ -362,6 +371,11 @@ export default function App() {
     setPromoCode(null);
     setPromoDraft("");
     setPromoError(null);
+    setCheckoutOpen(false);
+    setPaymentMock(null);
+    setPaymentStatus(null);
+    setPaidOrder(null);
+    setCheckoutError(null);
     setTabStops({});
     setWaitlist(null);
     setOfferedHolds([]);
@@ -484,6 +498,39 @@ export default function App() {
     setPromoError(null);
     setPriorTickets([]);
     setSelectedSeatIds([]);
+    setCheckoutOpen(false);
+    setPaymentMock(null);
+    setPaymentStatus(null);
+    setPaidOrder(null);
+    setCheckoutError(null);
+  }
+
+  async function submitCheckout() {
+    if (confirmedHold == null || paymentMock == null) {
+      return;
+    }
+    const orderId = confirmedHold.orderId;
+    const seatIds = confirmedHold.seatIds;
+    const mock = paymentMock;
+    const eventId = seatMap?.id;
+    setCheckoutError(null);
+    try {
+      await checkout(orderId, seatIds, mock);
+      const order = await fetchOrder(orderId);
+      setPriorTickets([]);
+      const status = order.payment?.status ?? null;
+      if (status === "succeeded") {
+        setPaidOrder(order);
+        setCheckoutOpen(false);
+        return;
+      }
+      setPaymentStatus(status);
+      if (status === "declined" && eventId != null) {
+        await loadSeatMap(eventId);
+      }
+    } catch {
+      setCheckoutError("Checkout did not complete.");
+    }
   }
 
   async function submitPromo(event: FormEvent) {
@@ -594,7 +641,68 @@ export default function App() {
       )}
       {opening ? <p className="status">Loading the seat map…</p> : null}
       {mapError != null ? <p className="error">{mapError}</p> : null}
-      {confirmedHold != null && openedEvent != null && seatMap != null ? (
+      {paidOrder?.payment != null ? (
+        <section className="tickets-screen" aria-label="Tickets">
+          <h3>Tickets</h3>
+          <ul>
+            {paidOrder.tickets.map((ticket) => (
+              <li key={ticket.seatId}>{ticket.label}</li>
+            ))}
+          </ul>
+          <p>{paidOrder.payment.status}</p>
+          <p>{formatCents(paidOrder.payment.amountCents)}</p>
+        </section>
+      ) : confirmedHold != null && openedEvent != null && seatMap != null && checkoutOpen ? (
+        <section className="checkout-screen">
+          <h3>Check out</h3>
+          <p>{formatWhen(confirmedHold.heldUntil, openedEvent.timeZone)}</p>
+          <ul>
+            {confirmedHold.labels.map((label) => (
+              <li key={label}>{label}</li>
+            ))}
+          </ul>
+          <ul className="price-lines" aria-label="Price">
+            {orderPriceLines(seatMap, confirmedHold.seatIds, pricedAt, saleTerms, promoCode).map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          <fieldset className="payment-result">
+            <legend>Payment result</legend>
+            {(["success", "decline", "timeout", "unknown"] as const).map((mock) => (
+              <label key={mock}>
+                <input
+                  type="radio"
+                  name="payment-result"
+                  value={mock}
+                  checked={paymentMock === mock}
+                  onChange={() => setPaymentMock(mock)}
+                />
+                {mock}
+              </label>
+            ))}
+          </fieldset>
+          <button type="button" className="primary" onClick={() => void submitCheckout()}>
+            Check out
+          </button>
+          {checkoutError != null ? <p className="error">{checkoutError}</p> : null}
+          {paymentStatus != null ? (
+            <p className="payment-status" role="status">
+              {paymentStatus}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              setCheckoutError(null);
+              setPaymentStatus(null);
+              setCheckoutOpen(false);
+            }}
+          >
+            Return to order
+          </button>
+        </section>
+      ) : confirmedHold != null && openedEvent != null && seatMap != null ? (
         <section className="hold-screen">
           <h3>Hold</h3>
           <p>{formatWhen(confirmedHold.heldUntil, openedEvent.timeZone)}</p>
@@ -623,7 +731,15 @@ export default function App() {
               Tickets {priorTickets.map((ticket) => ticket.label).join(", ")}
             </a>
           ) : null}
-          <button type="button" className="primary">
+          <button
+            type="button"
+            className="primary"
+            onClick={() => {
+              setPaymentStatus(null);
+              setCheckoutError(null);
+              setCheckoutOpen(true);
+            }}
+          >
             Check out
           </button>
           <button type="button" className="secondary" onClick={leaveHold}>
