@@ -62,7 +62,7 @@ public class SeatMapQuery {
                                         seat.getLabel(),
                                         seat.getPriceTier().getPriceCents(),
                                         seat.getPriceTier().getEarlyBirdPriceCents(),
-                                        stateOf(seat, active, blocked)))
+                                        stateOf(seat, active, blocked, event.isCancelled())))
                                 .toList()))
                 .toList();
         return new EventSeatMap(
@@ -77,12 +77,16 @@ public class SeatMapQuery {
                 sectionMaps);
     }
 
-    private static SeatState stateOf(Seat seat, Map<Long, EventSeatKind> active, Set<Long> blocked) {
+    private static SeatState stateOf(
+            Seat seat,
+            Map<Long, EventSeatKind> active,
+            Set<Long> blocked,
+            boolean eventCancelled) {
         EventSeatKind kind = active.get(seat.getId());
         if (kind != null) {
             return kind.seatState();
         }
-        if (blocked.contains(seat.getId())) {
+        if (blocked.contains(seat.getId()) || eventCancelled) {
             return SeatState.BLOCKED;
         }
         return SeatState.FREE;

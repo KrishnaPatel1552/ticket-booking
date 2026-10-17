@@ -35,6 +35,8 @@ public class Event {
 
     private Instant earlyBirdEndsAt;
 
+    private Instant cancelledAt;
+
     protected Event() {
     }
 
@@ -79,5 +81,17 @@ public class Event {
 
     public Instant getEarlyBirdEndsAt() {
         return earlyBirdEndsAt;
+    }
+
+    public Instant getCancelledAt() {
+        return cancelledAt;
+    }
+
+    public boolean isCancelled() {
+        return cancelledAt != null;
+    }
+
+    public void cancel(Instant at) {
+        this.cancelledAt = at;
     }
 }

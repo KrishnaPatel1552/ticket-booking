@@ -5,7 +5,8 @@ import com.fasterxml.jackson.annotation.JsonValue;
 public enum AuditKind {
     BLOCK,
     RELEASE_BLOCK,
-    EXCEPTIONAL_REFUND;
+    EXCEPTIONAL_REFUND,
+    EVENT_CANCELLATION;
 
     @JsonValue
     public String wireValue() {
@@ -13,6 +14,7 @@ public enum AuditKind {
             case BLOCK -> "block";
             case RELEASE_BLOCK -> "release";
             case EXCEPTIONAL_REFUND -> "exceptional-refund";
+            case EVENT_CANCELLATION -> "event-cancellation";
         };
     }
 }

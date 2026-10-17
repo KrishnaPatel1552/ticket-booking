@@ -72,6 +72,9 @@ public class HoldSeats {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED));
         Event event = events.findById(eventId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        if (event.isCancelled()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT);
+        }
         List<Seat> chosen = new ArrayList<>();
         for (Long seatId : seatIds) {
             Seat seat = seats.findById(seatId)
