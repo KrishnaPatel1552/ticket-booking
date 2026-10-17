@@ -11,7 +11,6 @@ public class RefundScript {
 
     private PaymentMockResult refund;
     private PaymentMockResult lookup;
-    private boolean refunded;
 
     public void scriptRefund(PaymentMockResult result) {
         this.refund = result;
@@ -22,10 +21,9 @@ public class RefundScript {
     }
 
     public PaymentMockResult refundOnce() {
-        if (refunded || refund == null) {
+        if (refund == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
-        refunded = true;
         return refund;
     }
 

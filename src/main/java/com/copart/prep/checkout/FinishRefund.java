@@ -67,11 +67,27 @@ public class FinishRefund {
             refund.mark(RefundStatus.SUCCEEDED);
             return;
         }
+        if (refund.getKind() == RefundKind.EVENT_CANCELLATION) {
+            releaseTickets(refund);
+            return;
+        }
+        List<EventSeat> locked = releaseTickets(refund);
+        offerWaitlist.offer(refund.getOrder().getEvent().getId(), locked);
+    }
+
+    private List<EventSeat> releaseTickets(Refund refund) {
         List<Long> seatIds = new ArrayList<>();
         for (EventSeat ticket : refund.getTickets()) {
-            seatIds.add(ticket.getSeat().getId());
+            if (ticket.isActive()) {
+                seatIds.add(ticket.getSeat().getId());
+            }
         }
-        List<EventSeat> locked = eventSeats.lockActiveForSeats(refund.getOrder().getId(), seatIds);
+        if (refund.getKind() != RefundKind.EVENT_CANCELLATION && seatIds.size() != refund.getTickets().size()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT);
+        }
+        List<EventSeat> locked = seatIds.isEmpty()
+                ? List.of()
+                : eventSeats.lockActiveForSeats(refund.getOrder().getId(), seatIds);
         if (locked.size() != seatIds.size()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
@@ -82,6 +98,6 @@ public class FinishRefund {
             }
             ticket.release();
         }
-        offerWaitlist.offer(refund.getOrder().getEvent().getId(), locked);
+        return locked;
     }
 }

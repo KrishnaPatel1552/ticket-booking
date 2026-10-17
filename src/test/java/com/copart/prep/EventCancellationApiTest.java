@@ -107,6 +107,64 @@ class EventCancellationApiTest {
         assertThat(admin.get("/api/admin/events/" + eventId + "/sales").getBody().get("free").asInt()).isEqualTo(20);
     }
 
+    @Test
+    void aRemainingTicketIsRefundedForItsNetPlusFeeAndStaysOffSale() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        long orderId = holdAndCheckout(ada, eventId, List.of(a1));
+        JsonNode before = ada.get("/api/orders/" + orderId).getBody();
+        assertThat(before.get("payment").get("amountCents").asInt()).isEqualTo(4100);
+        assertThat(before.get("tickets").get(0).get("startingPriceCents").asInt()).isEqualTo(4000);
+        assertThat(before.get("tickets").get(0).get("feeShareCents").asInt()).isEqualTo(100);
+
+        ResponseEntity<JsonNode> cancelled = admin.post("/api/admin/events/" + eventId + "/cancellation", java.util.Map.of(
+                "reason", "The artist is ill",
+                "mock", "success"));
+
+        assertThat(cancelled.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode order = ada.get("/api/orders/" + orderId).getBody();
+        assertThat(order.get("payment").get("status").asText()).isEqualTo("succeeded");
+        assertThat(order.get("payment").get("amountCents").asInt()).isEqualTo(4100);
+        assertThat(ticketLabels(order)).isEmpty();
+        assertThat(order.get("refunds")).hasSize(1);
+        assertThat(order.get("refunds").get(0).get("status").asText()).isEqualTo("succeeded");
+        assertThat(order.get("refunds").get(0).get("amountCents").asInt()).isEqualTo(4100);
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("blocked");
+        assertThat(grace.post("/api/events/" + eventId + "/holds", java.util.Map.of("seatIds", List.of(a1)))
+                .getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode sales = admin.get("/api/admin/events/" + eventId + "/sales").getBody();
+        assertThat(sales.get("free").asInt()).isEqualTo(0);
+        assertThat(sales.get("tickets").asInt()).isEqualTo(0);
+        assertThat(sales.get("ticketsSold").asInt()).isEqualTo(1);
+        assertThat(admin.get("/api/admin/events/" + eventId + "/audit-entries").getBody()).hasSize(1);
+    }
+
+    private long holdAndCheckout(ApiSession customer, long eventId, List<Long> seatIds) {
+        ResponseEntity<JsonNode> held = customer.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", seatIds));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+        ResponseEntity<JsonNode> checkedOut = customer.post("/api/orders/" + orderId + "/checkout", java.util.Map.of(
+                "seatIds", seatIds,
+                "mock", "success"));
+        assertThat(checkedOut.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return orderId;
+    }
+
+    private static List<String> ticketLabels(JsonNode order) {
+        List<String> labels = new java.util.ArrayList<>();
+        for (JsonNode ticket : order.get("tickets")) {
+            labels.add(ticket.get("label").asText());
+        }
+        return labels;
+    }
+
     private long createEvent(ApiSession admin, String startsAt) {
         long venueId = admin.get("/api/events?name=lights").getBody().get(0).get("venueId").asLong();
         String name = "CancelEvent-" + UUID.randomUUID();

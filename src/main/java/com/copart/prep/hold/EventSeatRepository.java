@@ -86,4 +86,13 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
             @Param("eventId") long eventId,
             @Param("kind") EventSeatKind kind,
             @Param("now") Instant now);
+
+    @Query("""
+            select ticket
+            from EventSeat ticket
+            where ticket.event.id = :eventId
+              and ticket.kind = com.copart.prep.hold.EventSeatKind.TICKET
+            order by ticket.id asc
+            """)
+    List<EventSeat> findTickets(@Param("eventId") long eventId);
 }
