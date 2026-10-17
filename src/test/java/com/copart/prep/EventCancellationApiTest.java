@@ -60,7 +60,7 @@ class EventCancellationApiTest {
         JsonNode sales = admin.get("/api/admin/events/" + eventId + "/sales").getBody();
         assertThat(sales.get("free").asInt()).isEqualTo(0);
         assertThat(sales.get("held").asInt()).isEqualTo(0);
-        assertThat(sales.get("blocked").asInt()).isEqualTo(0);
+        assertThat(sales.get("blocked").asInt()).isEqualTo(20);
         assertThat(sales.get("tickets").asInt()).isEqualTo(0);
         assertThat(sales.get("ticketsSold").asInt()).isEqualTo(0);
         ResponseEntity<JsonNode> entries = admin.get("/api/admin/events/" + eventId + "/audit-entries");
@@ -716,6 +716,48 @@ class EventCancellationApiTest {
         assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("blocked");
     }
 
+    @Test
+    void aCancelledEventMapAndSalesCountEachSeatOnce() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        long a2 = seatId(opened, "A2");
+        long b1 = seatId(opened, "B1");
+        assertThat(ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(a1))).getStatusCode()).isEqualTo(HttpStatus.OK);
+        holdAndCheckout(ada, eventId, List.of(a2));
+        assertThat(admin.post(
+                "/api/admin/events/" + eventId + "/seats/" + b1 + "/block",
+                java.util.Map.of("reason", "House seat")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        assertThat(admin.post("/api/admin/events/" + eventId + "/cancellation", java.util.Map.of(
+                "reason", "The artist is ill",
+                "mock", "unknown")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        JsonNode map = ada.get("/api/events/" + eventId).getBody();
+        JsonNode sales = admin.get("/api/admin/events/" + eventId + "/sales").getBody();
+        assertThat(seatState(map, "A1")).isEqualTo("held");
+        assertThat(seatState(map, "A2")).isEqualTo("ticket");
+        assertThat(seatState(map, "B1")).isEqualTo("blocked");
+        assertThat(seatState(map, "A3")).isEqualTo("blocked");
+        assertThat(sales.get("free").asInt()).isEqualTo(0);
+        assertThat(sales.get("held").asInt()).isEqualTo(1);
+        assertThat(sales.get("tickets").asInt()).isEqualTo(1);
+        assertThat(sales.get("blocked").asInt()).isEqualTo(18);
+        assertThat(sales.get("free").asInt()
+                + sales.get("held").asInt()
+                + sales.get("blocked").asInt()
+                + sales.get("tickets").asInt()).isEqualTo(20);
+        assertThat(countSeats(map, "free")).isEqualTo(sales.get("free").asInt());
+        assertThat(countSeats(map, "held")).isEqualTo(sales.get("held").asInt());
+        assertThat(countSeats(map, "blocked")).isEqualTo(sales.get("blocked").asInt());
+        assertThat(countSeats(map, "ticket")).isEqualTo(sales.get("tickets").asInt());
+    }
+
     private long sell(ApiSession customer, long eventId, JsonNode map, List<String> labels) {
         List<Long> seatIds = new ArrayList<>();
         for (String label : labels) {
@@ -806,6 +848,18 @@ class EventCancellationApiTest {
 
     private static String seatState(JsonNode event, String label) {
         return seat(event, label).get("state").asText();
+    }
+
+    private static int countSeats(JsonNode event, String state) {
+        int count = 0;
+        for (JsonNode section : event.get("sections")) {
+            for (JsonNode candidate : section.get("seats")) {
+                if (state.equals(candidate.get("state").asText())) {
+                    count++;
+                }
+            }
+        }
+        return count;
     }
 
     private static JsonNode seat(JsonNode event, String label) {

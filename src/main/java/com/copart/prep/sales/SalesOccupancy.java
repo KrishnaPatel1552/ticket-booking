@@ -45,11 +45,19 @@ public class SalesOccupancy {
         long venueSeats = seats.countBySection_Venue_Id(event.getVenue().getId());
         long ticketsSold = eventSeats.countByEventIdAndKind(eventId, EventSeatKind.TICKET);
         long totalPaidCents = payments.sumSucceededAmountCents(eventId);
-        int free = event.isCancelled() ? 0 : (int) (venueSeats - held - tickets - blocked);
+        int free;
+        int blockedCount;
+        if (event.isCancelled()) {
+            free = 0;
+            blockedCount = (int) (venueSeats - held - tickets);
+        } else {
+            free = (int) (venueSeats - held - tickets - blocked);
+            blockedCount = (int) blocked;
+        }
         return new SalesView(
                 free,
                 (int) held,
-                (int) blocked,
+                blockedCount,
                 (int) tickets,
                 (int) ticketsSold,
                 (int) totalPaidCents);
