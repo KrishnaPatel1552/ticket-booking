@@ -7,6 +7,7 @@ import com.copart.prep.payment.Payment;
 import com.copart.prep.payment.PaymentRepository;
 import com.copart.prep.payment.PaymentStatus;
 import com.copart.prep.waitlist.OfferWaitlist;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -20,11 +21,17 @@ public class FinishPayment {
     private final PaymentRepository payments;
     private final EventSeatRepository eventSeats;
     private final OfferWaitlist offerWaitlist;
+    private final RecordEventCancellationRefund recordEventCancellationRefund;
 
-    public FinishPayment(PaymentRepository payments, EventSeatRepository eventSeats, OfferWaitlist offerWaitlist) {
+    public FinishPayment(
+            PaymentRepository payments,
+            EventSeatRepository eventSeats,
+            OfferWaitlist offerWaitlist,
+            RecordEventCancellationRefund recordEventCancellationRefund) {
         this.payments = payments;
         this.eventSeats = eventSeats;
         this.offerWaitlist = offerWaitlist;
+        this.recordEventCancellationRefund = recordEventCancellationRefund;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -54,11 +61,14 @@ public class FinishPayment {
 
     private void writeTickets(Payment payment) {
         payment.mark(PaymentStatus.SUCCEEDED);
+        List<EventSeat> written = new ArrayList<>();
         for (EventSeat claim : eventSeats.lockActiveOnOrder(payment.getOrder().getId())) {
             if (claim.getKind() == EventSeatKind.HOLD) {
                 claim.becomeTicket();
+                written.add(claim);
             }
         }
+        refundIfEventCancelled(payment, written);
     }
 
     private void releaseSeats(Payment payment) {
@@ -81,6 +91,16 @@ public class FinishPayment {
                 throw new ResponseStatusException(HttpStatus.CONFLICT);
             }
             hold.becomeTicket();
+        }
+        refundIfEventCancelled(payment, holds);
+    }
+
+    private void refundIfEventCancelled(Payment payment, List<EventSeat> tickets) {
+        if (!payment.getOrder().getEvent().isCancelled()) {
+            return;
+        }
+        for (EventSeat ticket : tickets) {
+            recordEventCancellationRefund.record(ticket.getId());
         }
     }
 
