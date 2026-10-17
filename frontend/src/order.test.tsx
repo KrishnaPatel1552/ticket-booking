@@ -232,7 +232,7 @@ test("a rejected promo code shows that it could not be attached", async () => {
   expect(screen.getByRole("button", { name: "Check out" })).toBeTruthy();
 });
 
-test("returning to the seat map clears this hold so a different selection can be held", async () => {
+test("returning to the seat map shows the held seat so a different free seat can be held", async () => {
   const map: EventSeatMap = {
     ...harborMap,
     earlyBirdStartsAt: null,
@@ -248,14 +248,29 @@ test("returning to the seat map clears this hold so a different selection can be
     ],
   };
   const user = await holdSeatsOnMap(map, ["A1"]);
+  const loadsBefore = vi.mocked(fetchSeatMap).mock.calls.length;
+  vi.mocked(fetchSeatMap).mockResolvedValueOnce({
+    ...map,
+    sections: [
+      {
+        name: "Orchestra",
+        seats: [
+          seat({ id: 1, label: "A1", state: "held", priceCents: 5000 }),
+          seat({ id: 2, label: "A2", state: "free", priceCents: 4200 }),
+        ],
+      },
+    ],
+  });
 
   await user.click(screen.getByRole("button", { name: "Change seats" }));
 
+  expect(await screen.findByRole("button", { name: "A1 held" })).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Harbor Lights" })).toBeTruthy();
   expect(screen.getByRole("grid", { name: "Orchestra" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Check out" })).toBeNull();
   expect(screen.queryByText("Jun 12, 2026, 7:10 PM")).toBeNull();
   expect(screen.queryByRole("button", { name: "Open seat map" })).toBeNull();
+  expect(vi.mocked(fetchSeatMap).mock.calls.length).toBeGreaterThan(loadsBefore);
 
   await user.click(screen.getByRole("button", { name: "A2 free" }));
   vi.mocked(holdSeats).mockResolvedValueOnce({

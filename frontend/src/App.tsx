@@ -518,7 +518,8 @@ export default function App() {
     setCheckoutOpen(false);
   }
 
-  function leaveHold() {
+  async function leaveHold() {
+    const eventId = seatMap?.id;
     setConfirmedHold(null);
     setPromoCode(null);
     setPromoDraft("");
@@ -534,6 +535,9 @@ export default function App() {
     setRefundAmountCents(null);
     setCancelError(null);
     setCheckoutError(null);
+    if (eventId != null) {
+      await loadSeatMap(eventId);
+    }
   }
 
   async function submitCheckout() {
@@ -883,7 +887,7 @@ export default function App() {
           >
             Check out
           </button>
-          <button type="button" className="secondary" onClick={leaveHold}>
+          <button type="button" className="secondary" onClick={() => void leaveHold()}>
             Change seats
           </button>
         </section>
