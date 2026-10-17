@@ -6,6 +6,8 @@ import com.copart.prep.audit.AuditKind;
 import com.copart.prep.clock.AppClock;
 import com.copart.prep.event.Event;
 import com.copart.prep.event.EventRepository;
+import com.copart.prep.hold.EventSeat;
+import com.copart.prep.hold.EventSeatKind;
 import com.copart.prep.hold.EventSeatRepository;
 import com.copart.prep.hold.HoldGate;
 import com.copart.prep.signin.Account;
@@ -13,6 +15,7 @@ import com.copart.prep.signin.AccountRepository;
 import com.copart.prep.venue.Seat;
 import com.copart.prep.venue.SeatRepository;
 import com.copart.prep.venue.SeatRowLock;
+import com.copart.prep.waitlist.OfferWaitlist;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -32,6 +35,7 @@ public class BlockSeat {
     private final SeatRowLock seatRowLock;
     private final HoldGate holdGate;
     private final AppClock clock;
+    private final OfferWaitlist offerWaitlist;
 
     public BlockSeat(
             AccountRepository accounts,
@@ -42,7 +46,8 @@ public class BlockSeat {
             AuditEntryRepository auditEntries,
             SeatRowLock seatRowLock,
             HoldGate holdGate,
-            AppClock clock) {
+            AppClock clock,
+            OfferWaitlist offerWaitlist) {
         this.accounts = accounts;
         this.events = events;
         this.seats = seats;
@@ -52,6 +57,7 @@ public class BlockSeat {
         this.seatRowLock = seatRowLock;
         this.holdGate = holdGate;
         this.clock = clock;
+        this.offerWaitlist = offerWaitlist;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -79,6 +85,7 @@ public class BlockSeat {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT));
         block.release();
         record(admin, event, seat, AuditKind.RELEASE_BLOCK, reason);
+        offerWaitlist.offer(event.getId(), List.of(new EventSeat(null, event, seat, EventSeatKind.HOLD, null)));
     }
 
     private Account admin(String email) {

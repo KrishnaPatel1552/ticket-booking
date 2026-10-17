@@ -306,6 +306,43 @@ class WaitlistApiTest {
         assertThat(holdLabeled(graceOffer, "B8").get("heldUntil").asText()).isEqualTo("2026-10-16T20:30:00Z");
     }
 
+    @Test
+    void releasingABlockOffersThatSeatToTheWaitlistForFifteenMinutes() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T21:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        List<String> labels = new java.util.ArrayList<>();
+        for (int number = 1; number <= 12; number++) {
+            labels.add("A" + number);
+        }
+        for (int number = 1; number <= 8; number++) {
+            labels.add("B" + number);
+        }
+        for (String label : labels) {
+            assertThat(admin.post(
+                    "/api/admin/events/" + eventId + "/seats/" + seatId(opened, label) + "/block",
+                    java.util.Map.of("reason", "House seats")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        }
+        assertThat(ada.post("/api/events/" + eventId + "/waitlist", java.util.Map.of()).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        assertThat(admin.post(
+                "/api/admin/events/" + eventId + "/seats/" + seatId(opened, "A1") + "/release",
+                java.util.Map.of("reason", "One seat is back")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("held");
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A2")).isEqualTo("blocked");
+        JsonNode line = ada.get("/api/events/" + eventId + "/waitlist").getBody();
+        assertThat(line.get("place").asInt()).isEqualTo(1);
+        JsonNode offer = ada.get("/api/orders/" + line.get("orderId").asLong()).getBody();
+        assertThat(offer.get("payment").isNull()).isTrue();
+        assertThat(offer.get("tickets")).isEmpty();
+        assertThat(holdLabeled(offer, "A1").get("heldUntil").asText()).isEqualTo("2026-10-16T21:15:00Z");
+    }
+
     private static JsonNode holdLabeled(JsonNode order, String label) {
         for (JsonNode hold : order.path("holds")) {
             if (label.equals(hold.path("label").asText())) {
