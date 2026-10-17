@@ -98,6 +98,14 @@ public class EventSeat {
         this.active = false;
     }
 
+    public boolean isFromWaitlist() {
+        return fromWaitlist;
+    }
+
+    public void markFromWaitlist() {
+        this.fromWaitlist = true;
+    }
+
     public void becomeTicket() {
         this.kind = EventSeatKind.TICKET;
     }

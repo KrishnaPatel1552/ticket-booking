@@ -1,4 +1,4 @@
 package com.copart.prep.waitlist;
 
-public record WaitlistView(int place) {
+public record WaitlistView(int place, Long orderId) {
 }

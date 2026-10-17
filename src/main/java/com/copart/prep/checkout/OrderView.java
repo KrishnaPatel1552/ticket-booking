@@ -8,5 +8,6 @@ public record OrderView(
         String promoCode,
         PaymentView payment,
         List<TicketView> tickets,
-        List<RefundView> refunds) {
+        List<RefundView> refunds,
+        List<HoldView> holds) {
 }

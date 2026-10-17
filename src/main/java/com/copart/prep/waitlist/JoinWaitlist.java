@@ -63,7 +63,7 @@ public class JoinWaitlist {
         try {
             WaitlistEntry entry = entries.save(new WaitlistEntry(event, customer));
             entityManager.flush();
-            return placeOf(entry);
+            return view(entry);
         } catch (DataIntegrityViolationException exception) {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
@@ -77,12 +77,17 @@ public class JoinWaitlist {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         WaitlistEntry entry = entries.findByEventIdAndCustomerId(event.getId(), customer.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-        return placeOf(entry);
+        return view(entry);
     }
 
-    private WaitlistView placeOf(WaitlistEntry entry) {
+    private WaitlistView view(WaitlistEntry entry) {
         long place = entries.countByEventIdAndIdLessThanEqual(entry.getEvent().getId(), entry.getId());
-        return new WaitlistView((int) place);
+        Long orderId = eventSeats.findActiveWaitlistHolds(entry.getCustomer().getId(), entry.getEvent().getId())
+                .stream()
+                .map(claim -> claim.getOrder().getId())
+                .findFirst()
+                .orElse(null);
+        return new WaitlistView((int) place, orderId);
     }
 
     private boolean anySeatFree(Event event) {
