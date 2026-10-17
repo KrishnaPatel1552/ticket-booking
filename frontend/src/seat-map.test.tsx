@@ -15,6 +15,7 @@ vi.mock("./api", () => ({
   attachPromoCode: vi.fn(),
   checkout: vi.fn(),
   fetchOrder: vi.fn(),
+  fetchSaleTerms: vi.fn(),
   cancelTickets: vi.fn(),
 }));
 
@@ -264,8 +265,8 @@ test("Hold seats waits for a free seat, then a successful hold opens the order s
   expect(screen.getByText("A2")).toBeTruthy();
   expect(screen.queryByRole("grid")).toBeNull();
   expect(screen.queryByRole("button", { name: "Hold seats" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Check out" })).toBeNull();
-  expect(screen.queryByLabelText(/promo code/i)).toBeNull();
+  expect(screen.getByRole("button", { name: "Check out" })).toBeTruthy();
+  expect(screen.getByLabelText(/promo code/i)).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Cancel/ })).toBeNull();
   expect(screen.queryByText(/service fee/i)).toBeNull();
   expect(screen.queryByText(/group rate/i)).toBeNull();

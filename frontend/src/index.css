@@ -745,6 +745,99 @@ button.seat:disabled {
   margin: 0;
 }
 
+.events-screen .hold-screen .price-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.9rem 0 0;
+  list-style: none;
+  border-top: 1px solid rgba(245, 158, 11, 0.35);
+  font-variant-numeric: tabular-nums;
+}
+
+.events-screen .hold-screen .price-lines li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.events-screen .hold-screen .price-lines li:last-child {
+  margin-top: 0.15rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid rgba(226, 232, 240, 0.12);
+  color: #f8fafc;
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.events-screen .hold-screen .promo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.events-screen .hold-screen .promo label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.events-screen .hold-screen .promo input {
+  padding: 0.7rem 0.75rem;
+  border: 1px solid rgba(226, 232, 240, 0.16);
+  border-radius: 0.6rem;
+  background: #131e29;
+  color: #e2e8f0;
+  font-size: 1rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.events-screen .hold-screen .promo input:focus {
+  outline: 2px solid #38bdf8;
+  outline-offset: 1px;
+}
+
+.events-screen .hold-screen .secondary {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid rgba(226, 232, 240, 0.4);
+  border-radius: 0.7rem;
+  background: transparent;
+  color: #e2e8f0;
+  font-family: Inter, sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.events-screen .hold-screen .secondary:hover,
+.events-screen .hold-screen .secondary:focus-visible {
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+.events-screen .hold-screen .primary {
+  width: 100%;
+}
+
+.events-screen .hold-screen .ticket-link {
+  color: #38bdf8;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.events-screen .hold-screen .ticket-link:hover,
+.events-screen .hold-screen .ticket-link:focus-visible {
+  color: #7dd3fc;
+}
+
 .events-screen .hold-screen ul {
   padding-left: 1.1rem;
 }

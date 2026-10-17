@@ -178,3 +178,16 @@ export async function fetchOrder(orderId: number): Promise<OrderView> {
   });
   return readJson<OrderView>(response);
 }
+
+export type SaleTermsView = {
+  groupRateThreshold: number;
+  groupRateAmountCents: number;
+  serviceFeeCents: number;
+};
+
+export async function fetchSaleTerms(): Promise<SaleTermsView> {
+  const response = await fetch("/api/sale-terms", {
+    credentials: "include",
+  });
+  return readJson<SaleTermsView>(response);
+}

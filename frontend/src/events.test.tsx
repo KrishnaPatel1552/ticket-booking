@@ -24,6 +24,7 @@ vi.mock("./api", () => ({
   attachPromoCode: vi.fn(),
   checkout: vi.fn(),
   fetchOrder: vi.fn(),
+  fetchSaleTerms: vi.fn(),
   cancelTickets: vi.fn(),
 }));
 

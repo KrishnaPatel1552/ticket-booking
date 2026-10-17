@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
+  attachPromoCode,
   fetchOrder,
+  fetchSaleTerms,
   fetchSeatMap,
   fetchWaitlist,
   holdSeats,
@@ -10,9 +12,11 @@ import {
   type EventSeatMap,
   type EventSummary,
   type HoldView,
+  type SaleTermsView,
   type SeatState,
   type SeatView,
   type SignedIn,
+  type TicketView,
   type WaitlistPlace,
 } from "./api";
 
@@ -44,6 +48,39 @@ function currentPriceCents(map: EventSeatMap, seat: SeatView, now: number): numb
   return seat.priceCents;
 }
 
+function orderPriceLines(
+  map: EventSeatMap,
+  seatIds: number[],
+  now: number,
+  terms: SaleTermsView | null,
+  promoCode: string | null,
+): string[] {
+  const held = seatIds
+    .map((id) => seatById(map, id))
+    .filter((seat): seat is SeatView => seat != null);
+  const priceTierCents = held.reduce((sum, seat) => sum + seat.priceCents, 0);
+  const ticketTotalCents = held.reduce((sum, seat) => sum + currentPriceCents(map, seat, now), 0);
+  const lines = [`Price tier ${formatCents(priceTierCents)}`];
+  if (earlyBirdWindowOpen(map, now)) {
+    const earlyBirdCents = held.reduce((sum, seat) => sum + currentPriceCents(map, seat, now), 0);
+    lines.push(`Early-bird ${formatCents(earlyBirdCents)}`);
+  }
+  lines.push(`Ticket total ${formatCents(ticketTotalCents)}`);
+  let groupRateCents = 0;
+  if (terms != null && held.length >= terms.groupRateThreshold) {
+    groupRateCents = Math.min(terms.groupRateAmountCents, ticketTotalCents);
+    lines.push(`Group rate ${formatCents(groupRateCents)}`);
+  }
+  if (promoCode != null && promoCode !== "") {
+    lines.push(promoCode);
+  }
+  if (terms != null) {
+    lines.push(`Service fee ${formatCents(terms.serviceFeeCents)}`);
+    lines.push(`Total ${formatCents(ticketTotalCents - groupRateCents + terms.serviceFeeCents)}`);
+  }
+  return lines;
+}
+
 function priceTierLine(map: EventSeatMap): string | null {
   const tiers = new Set<number>();
   for (const section of map.sections) {
@@ -59,6 +96,15 @@ function priceTierLine(map: EventSeatMap): string | null {
     return `Early-bird ends ${formatWhen(map.earlyBirdEndsAt, map.timeZone)}. The price tier is ${formatted} after that.`;
   }
   return `The price tier is ${formatted}.`;
+}
+
+function earlyBirdWindowOpen(map: EventSeatMap, now: number): boolean {
+  if (map.earlyBirdStartsAt == null || map.earlyBirdEndsAt == null) {
+    return false;
+  }
+  const start = new Date(map.earlyBirdStartsAt).getTime();
+  const end = new Date(map.earlyBirdEndsAt).getTime();
+  return now >= start && now < end;
 }
 
 function seatById(map: EventSeatMap, seatId: number): SeatView | undefined {
@@ -184,7 +230,18 @@ export default function App() {
   const [selectedSeatIds, setSelectedSeatIds] = useState<number[]>([]);
   const [holding, setHolding] = useState(false);
   const [holdError, setHoldError] = useState<string | null>(null);
-  const [confirmedHold, setConfirmedHold] = useState<{ labels: string[]; heldUntil: string } | null>(null);
+  const [confirmedHold, setConfirmedHold] = useState<{
+    orderId: number;
+    labels: string[];
+    seatIds: number[];
+    heldUntil: string;
+  } | null>(null);
+  const [saleTerms, setSaleTerms] = useState<SaleTermsView | null>(null);
+  const [priorTickets, setPriorTickets] = useState<TicketView[]>([]);
+  const [promoCode, setPromoCode] = useState<string | null>(null);
+  const [promoDraft, setPromoDraft] = useState("");
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [attaching, setAttaching] = useState(false);
   const [tabStops, setTabStops] = useState<Record<string, number>>({});
   const [focusedSeatId, setFocusedSeatId] = useState<number | null>(null);
   const seatRefs = useRef(new Map<number, HTMLButtonElement>());
@@ -300,6 +357,11 @@ export default function App() {
     setSelectedSeatIds([]);
     setHoldError(null);
     setConfirmedHold(null);
+    setSaleTerms(null);
+    setPriorTickets([]);
+    setPromoCode(null);
+    setPromoDraft("");
+    setPromoError(null);
     setTabStops({});
     setWaitlist(null);
     setOfferedHolds([]);
@@ -356,13 +418,68 @@ export default function App() {
     setHoldError(null);
     try {
       const held = await holdSeats(eventId, seatsToHold);
-      setConfirmedHold({ labels, heldUntil: held.heldUntil });
+      let terms: SaleTermsView | null = null;
+      try {
+        terms = await fetchSaleTerms();
+      } catch {
+        terms = null;
+      }
+      let tickets: TicketView[] = [];
+      try {
+        const order = await fetchOrder(held.orderId);
+        if (order != null && order.tickets.length > 0) {
+          tickets = order.tickets;
+        }
+      } catch {
+        tickets = [];
+      }
+      setSaleTerms(terms);
+      setPriorTickets(tickets);
+      setPromoCode(null);
+      setPromoDraft("");
+      setPromoError(null);
+      setConfirmedHold({
+        orderId: held.orderId,
+        labels,
+        seatIds: seatsToHold,
+        heldUntil: held.heldUntil,
+      });
       setSelectedSeatIds([]);
     } catch {
       setHoldError("Those seats could not be held.");
       await loadSeatMap(eventId);
     } finally {
       setHolding(false);
+    }
+  }
+
+  function leaveHold() {
+    setConfirmedHold(null);
+    setPromoCode(null);
+    setPromoDraft("");
+    setPromoError(null);
+    setPriorTickets([]);
+    setSelectedSeatIds([]);
+  }
+
+  async function submitPromo(event: FormEvent) {
+    event.preventDefault();
+    if (confirmedHold == null) {
+      return;
+    }
+    const code = promoDraft.trim();
+    if (code === "") {
+      return;
+    }
+    setAttaching(true);
+    setPromoError(null);
+    try {
+      const order = await attachPromoCode(confirmedHold.orderId, code);
+      setPromoCode(order.promoCode);
+    } catch {
+      setPromoError("That promo code could not be attached.");
+    } finally {
+      setAttaching(false);
     }
   }
 
@@ -453,7 +570,7 @@ export default function App() {
       )}
       {opening ? <p className="status">Loading the seat map…</p> : null}
       {mapError != null ? <p className="error">{mapError}</p> : null}
-      {confirmedHold != null && openedEvent != null ? (
+      {confirmedHold != null && openedEvent != null && seatMap != null ? (
         <section className="hold-screen">
           <h3>Hold</h3>
           <p>{formatWhen(confirmedHold.heldUntil, openedEvent.timeZone)}</p>
@@ -462,6 +579,32 @@ export default function App() {
               <li key={label}>{label}</li>
             ))}
           </ul>
+          <ul className="price-lines" aria-label="Price">
+            {orderPriceLines(seatMap, confirmedHold.seatIds, pricedAt, saleTerms, promoCode).map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          <form className="promo" onSubmit={(event) => void submitPromo(event)}>
+            <label>
+              Promo code
+              <input value={promoDraft} onChange={(event) => setPromoDraft(event.target.value)} />
+            </label>
+            <button type="submit" className="secondary" disabled={attaching}>
+              {attaching ? "Attaching…" : "Attach promo code"}
+            </button>
+            {promoError != null ? <p className="error">{promoError}</p> : null}
+          </form>
+          {priorTickets.length > 0 ? (
+            <a className="ticket-link" href={`#tickets-${confirmedHold.orderId}`}>
+              Tickets {priorTickets.map((ticket) => ticket.label).join(", ")}
+            </a>
+          ) : null}
+          <button type="button" className="primary">
+            Check out
+          </button>
+          <button type="button" className="secondary" onClick={leaveHold}>
+            Change seats
+          </button>
         </section>
       ) : seatMap != null ? (
         <section className="map">
