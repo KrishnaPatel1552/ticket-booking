@@ -6,7 +6,8 @@ public enum AuditKind {
     BLOCK,
     RELEASE_BLOCK,
     EXCEPTIONAL_REFUND,
-    EVENT_CANCELLATION;
+    EVENT_CANCELLATION,
+    RESCHEDULE;
 
     @JsonValue
     public String wireValue() {
@@ -15,6 +16,7 @@ public enum AuditKind {
             case RELEASE_BLOCK -> "release";
             case EXCEPTIONAL_REFUND -> "exceptional-refund";
             case EVENT_CANCELLATION -> "event-cancellation";
+            case RESCHEDULE -> "reschedule";
         };
     }
 }

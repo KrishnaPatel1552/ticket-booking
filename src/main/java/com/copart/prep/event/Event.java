@@ -37,6 +37,8 @@ public class Event {
 
     private Instant cancelledAt;
 
+    private Instant rescheduledAt;
+
     protected Event() {
     }
 
@@ -93,5 +95,14 @@ public class Event {
 
     public void cancel(Instant at) {
         this.cancelledAt = at;
+    }
+
+    public Instant getRescheduledAt() {
+        return rescheduledAt;
+    }
+
+    public void reschedule(Instant startsAt, Instant at) {
+        this.startsAt = startsAt;
+        this.rescheduledAt = at;
     }
 }
