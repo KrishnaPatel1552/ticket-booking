@@ -25,6 +25,13 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
                       and ticket.active = true
                       and ticket.kind = com.copart.prep.hold.EventSeatKind.TICKET
                   )
+                  and exists (
+                    select hold.id
+                    from EventSeat hold
+                    where hold.order = payment.order
+                      and hold.active = true
+                      and hold.kind = com.copart.prep.hold.EventSeatKind.HOLD
+                  )
                 )
               )
             """)

@@ -11,6 +11,8 @@ public interface RefundRepository extends JpaRepository<Refund, Long> {
 
     List<Refund> findByOrder_IdOrderByIdAsc(long orderId);
 
+    List<Refund> findByOrder_IdAndStatusOrderByIdAsc(long orderId, RefundStatus status);
+
     @Query("""
             select refund
             from Refund refund

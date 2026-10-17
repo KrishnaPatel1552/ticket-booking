@@ -71,7 +71,10 @@ public class RecordPendingRefund {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
         Instant now = clock.now();
-        int amount = amountCents(tickets, now, order.getEvent().getStartsAt());
+        Integer repaired = failedAmountForSameTickets(orderId, tickets);
+        int amount = repaired != null
+                ? repaired
+                : amountCents(tickets, now, order.getEvent().getStartsAt());
         Refund refund = new Refund(order, amount, RefundStatus.PENDING, now);
         for (EventSeat ticket : tickets) {
             refund.addTicket(ticket);
@@ -92,6 +95,24 @@ public class RecordPendingRefund {
             }
         }
         return true;
+    }
+
+    private Integer failedAmountForSameTickets(long orderId, List<EventSeat> tickets) {
+        HashSet<Long> requested = new HashSet<>();
+        for (EventSeat ticket : tickets) {
+            requested.add(ticket.getId());
+        }
+        Integer amount = null;
+        for (Refund refund : refunds.findByOrder_IdAndStatusOrderByIdAsc(orderId, RefundStatus.FAILED)) {
+            HashSet<Long> covered = new HashSet<>();
+            for (EventSeat ticket : refund.getTickets()) {
+                covered.add(ticket.getId());
+            }
+            if (covered.equals(requested)) {
+                amount = refund.getAmountCents();
+            }
+        }
+        return amount;
     }
 
     private static int amountCents(List<EventSeat> tickets, Instant now, Instant startsAt) {
