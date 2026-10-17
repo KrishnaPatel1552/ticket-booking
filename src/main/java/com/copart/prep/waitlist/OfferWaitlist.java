@@ -70,21 +70,31 @@ public class OfferWaitlist {
         List<EventSeat> freed = new ArrayList<>(released);
         freed.sort(Comparator.comparing(claim -> claim.getSeat().getId()));
         for (EventSeat claim : freed) {
-            offerSeat(eventId, claim.getSeat().getId());
+            offerSeat(eventId, claim.getSeat().getId(), lapsedCustomer(claim));
         }
     }
 
-    private void offerSeat(long eventId, long seatId) {
+    private void offerSeat(long eventId, long seatId, Long skipCustomerId) {
         if (!free(eventId, seatId)) {
             return;
         }
         for (WaitlistEntry entry : entries.findByEventIdOrderByIdAsc(eventId)) {
+            if (skipCustomerId != null && skipCustomerId.equals(entry.getCustomer().getId())) {
+                continue;
+            }
             if (!room(entry)) {
                 continue;
             }
             hold(entry, seatId);
             return;
         }
+    }
+
+    private Long lapsedCustomer(EventSeat claim) {
+        if (!claim.isFromWaitlist() || payments.existsForOrder(claim.getOrder().getId())) {
+            return null;
+        }
+        return claim.getOrder().getCustomer().getId();
     }
 
     private boolean room(WaitlistEntry entry) {
