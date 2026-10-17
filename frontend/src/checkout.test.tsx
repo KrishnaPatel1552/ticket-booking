@@ -198,7 +198,6 @@ test("a succeeded payment opens the tickets for those seats", async () => {
   expect(within(tickets).getByText("A2")).toBeTruthy();
   expect(within(tickets).getByText("succeeded")).toBeTruthy();
   expect(within(tickets).getByText("$102.50")).toBeTruthy();
-  expect(within(tickets).queryByRole("checkbox")).toBeNull();
   expect(within(tickets).queryByText(/refund/i)).toBeNull();
   expect(document.querySelector("section.checkout-screen")).toBeNull();
   expect(document.querySelector("section.hold-screen")).toBeNull();

@@ -1017,10 +1017,72 @@ button.seat:disabled {
 }
 
 .events-screen .tickets-screen li {
-  padding: 0.85rem 0.9rem;
-  background: #131e29;
-  border-radius: 0.7rem;
   font-weight: 600;
+}
+
+.events-screen .tickets-screen .ticket-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  box-sizing: border-box;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 0.9rem;
+  background: #131e29;
+  border: 1px solid rgba(226, 232, 240, 0.14);
+  border-radius: 0.7rem;
+  font-family: Inter, sans-serif;
+  font-weight: 600;
+}
+
+.events-screen .tickets-screen .ticket-choice:hover,
+.events-screen .tickets-screen .ticket-choice:focus-within {
+  border-color: #38bdf8;
+}
+
+.events-screen .tickets-screen .amount {
+  font-variant-numeric: tabular-nums;
+}
+
+.events-screen .tickets-screen .refund-script {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.85rem 0 0;
+  border: 0;
+  border-top: 1px solid rgba(226, 232, 240, 0.12);
+}
+
+.events-screen .tickets-screen .refund-script legend {
+  padding: 0;
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.events-screen .tickets-screen .refund-script label {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 0.85rem;
+  background: #131e29;
+  border: 1px solid rgba(226, 232, 240, 0.14);
+  border-radius: 0.7rem;
+  font-family: Inter, sans-serif;
+}
+
+.events-screen .tickets-screen .refund-script label:hover,
+.events-screen .tickets-screen .refund-script label:focus-within {
+  border-color: #38bdf8;
+}
+
+.events-screen .tickets-screen .primary {
+  width: 100%;
 }
 
 .events-screen .error {

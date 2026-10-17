@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
   attachPromoCode,
+  cancelTickets,
   checkout,
   fetchOrder,
   fetchSaleTerms,
@@ -250,6 +251,11 @@ export default function App() {
   const [paymentMock, setPaymentMock] = useState<PaymentMock | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus | null>(null);
   const [paidOrder, setPaidOrder] = useState<OrderView | null>(null);
+  const [ticketIdsToCancel, setTicketIdsToCancel] = useState<number[]>([]);
+  const [refundMock, setRefundMock] = useState<PaymentMock | null>(null);
+  const [refundScript, setRefundScript] = useState<PaymentMock | null>(null);
+  const [refundAmountCents, setRefundAmountCents] = useState<number | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [tabStops, setTabStops] = useState<Record<string, number>>({});
   const [focusedSeatId, setFocusedSeatId] = useState<number | null>(null);
@@ -375,6 +381,11 @@ export default function App() {
     setPaymentMock(null);
     setPaymentStatus(null);
     setPaidOrder(null);
+    setTicketIdsToCancel([]);
+    setRefundMock(null);
+    setRefundScript(null);
+    setRefundAmountCents(null);
+    setCancelError(null);
     setCheckoutError(null);
     setTabStops({});
     setWaitlist(null);
@@ -502,6 +513,11 @@ export default function App() {
     setPaymentMock(null);
     setPaymentStatus(null);
     setPaidOrder(null);
+    setTicketIdsToCancel([]);
+    setRefundMock(null);
+    setRefundScript(null);
+    setRefundAmountCents(null);
+    setCancelError(null);
     setCheckoutError(null);
   }
 
@@ -521,6 +537,11 @@ export default function App() {
       const status = order.payment?.status ?? null;
       if (status === "succeeded") {
         setPaidOrder(order);
+        setTicketIdsToCancel([]);
+        setRefundMock(null);
+        setRefundScript(null);
+        setRefundAmountCents(null);
+        setCancelError(null);
         setCheckoutOpen(false);
         return;
       }
@@ -530,6 +551,34 @@ export default function App() {
       }
     } catch {
       setCheckoutError("Checkout did not complete.");
+    }
+  }
+
+  function toggleTicket(seatId: number) {
+    setTicketIdsToCancel((current) =>
+      current.includes(seatId) ? current.filter((id) => id !== seatId) : [...current, seatId],
+    );
+  }
+
+  async function submitCancel() {
+    if (paidOrder == null || refundMock == null || ticketIdsToCancel.length === 0) {
+      return;
+    }
+    const orderId = paidOrder.id;
+    const seatIds = paidOrder.tickets
+      .map((ticket) => ticket.seatId)
+      .filter((seatId) => ticketIdsToCancel.includes(seatId));
+    const mock = refundMock;
+    setCancelError(null);
+    try {
+      const order = await cancelTickets(orderId, seatIds, mock);
+      const latestRefund = order.refunds[order.refunds.length - 1];
+      setPaidOrder(order);
+      setTicketIdsToCancel([]);
+      setRefundScript(mock);
+      setRefundAmountCents(latestRefund == null ? null : latestRefund.amountCents);
+    } catch {
+      setCancelError("Those tickets could not be cancelled.");
     }
   }
 
@@ -646,11 +695,46 @@ export default function App() {
           <h3>Tickets</h3>
           <ul>
             {paidOrder.tickets.map((ticket) => (
-              <li key={ticket.seatId}>{ticket.label}</li>
+              <li key={ticket.seatId}>
+                <label className="ticket-choice">
+                  <input
+                    type="checkbox"
+                    checked={ticketIdsToCancel.includes(ticket.seatId)}
+                    onChange={() => toggleTicket(ticket.seatId)}
+                  />
+                  {ticket.label}
+                </label>
+              </li>
             ))}
           </ul>
           <p>{paidOrder.payment.status}</p>
-          <p>{formatCents(paidOrder.payment.amountCents)}</p>
+          <p className="amount">{formatCents(paidOrder.payment.amountCents)}</p>
+          <fieldset className="refund-script">
+            <legend>Result</legend>
+            {(["success", "decline", "timeout", "unknown"] as const).map((mock) => (
+              <label key={mock}>
+                <input
+                  type="radio"
+                  name="refund-result"
+                  value={mock}
+                  checked={refundMock === mock}
+                  onChange={() => setRefundMock(mock)}
+                />
+                {mock}
+              </label>
+            ))}
+          </fieldset>
+          {refundScript != null ? <p>{refundScript}</p> : null}
+          {refundAmountCents != null ? <p className="amount">{formatCents(refundAmountCents)}</p> : null}
+          <button
+            type="button"
+            className="primary"
+            disabled={ticketIdsToCancel.length === 0}
+            onClick={() => void submitCancel()}
+          >
+            Cancel selected
+          </button>
+          {cancelError != null ? <p className="error">{cancelError}</p> : null}
         </section>
       ) : confirmedHold != null && openedEvent != null && seatMap != null && checkoutOpen ? (
         <section className="checkout-screen">
