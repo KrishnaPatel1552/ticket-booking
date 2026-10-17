@@ -62,6 +62,51 @@ class EventCancellationApiTest {
         assertThat(entries.getBody().get(0).get("recordedAt").asText()).isEqualTo("2026-10-16T15:00:00Z");
     }
 
+    @Test
+    void aCustomerIsRefusedAnEventCancellation() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+
+        ResponseEntity<JsonNode> refused = ada.post("/api/admin/events/" + eventId + "/cancellation", java.util.Map.of(
+                "reason", "I cannot attend",
+                "mock", "success"));
+
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("free");
+        assertThat(ada.post("/api/events/" + eventId + "/holds", java.util.Map.of("seatIds", List.of(a1)))
+                .getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(admin.get("/api/admin/events/" + eventId + "/audit-entries").getBody()).isEmpty();
+        JsonNode sales = admin.get("/api/admin/events/" + eventId + "/sales").getBody();
+        assertThat(sales.get("free").asInt()).isEqualTo(19);
+        assertThat(sales.get("held").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    void anEventCancellationWithoutAReasonIsRefused() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        String path = "/api/admin/events/" + eventId + "/cancellation";
+
+        assertThat(admin.post(path, java.util.Map.of("reason", "", "mock", "success")).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(admin.post(path, java.util.Map.of("reason", "   ", "mock", "success")).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(admin.post(path, java.util.Map.of("mock", "success")).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("free");
+        assertThat(admin.get("/api/admin/events/" + eventId + "/audit-entries").getBody()).isEmpty();
+        assertThat(admin.get("/api/admin/events/" + eventId + "/sales").getBody().get("free").asInt()).isEqualTo(20);
+    }
+
     private long createEvent(ApiSession admin, String startsAt) {
         long venueId = admin.get("/api/events?name=lights").getBody().get(0).get("venueId").asLong();
         String name = "CancelEvent-" + UUID.randomUUID();
