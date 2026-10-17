@@ -17,6 +17,17 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
 
     List<EventSeat> findByOrderIdAndActiveTrueAndKind(Long orderId, EventSeatKind kind);
 
+    @Query("""
+            select claim
+            from EventSeat claim
+            where claim.order.customer.id = :customerId
+              and claim.event.id = :eventId
+              and claim.active = true
+              and claim.kind = com.copart.prep.hold.EventSeatKind.HOLD
+              and claim.fromWaitlist = true
+            """)
+    List<EventSeat> findActiveWaitlistHolds(@Param("customerId") long customerId, @Param("eventId") long eventId);
+
     long countByEventIdAndActiveTrueAndKind(Long eventId, EventSeatKind kind);
 
     long countByEventIdAndKind(Long eventId, EventSeatKind kind);

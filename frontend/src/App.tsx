@@ -5,11 +5,14 @@ import {
   checkout,
   fetchOrder,
   fetchSeatMap,
+  fetchWaitlist,
   holdSeats,
+  joinWaitlist,
   searchEvents,
   signIn,
   type EventSeatMap,
   type EventSummary,
+  type HoldView,
   type OrderView,
   type PaymentMock,
   type PaymentStatus,
@@ -17,6 +20,7 @@ import {
   type SeatState,
   type SeatView,
   type SignedIn,
+  type WaitlistPlace,
 } from "./api";
 
 function formatCents(cents: number): string {
@@ -123,6 +127,10 @@ export default function App() {
   const [ticketsToCancel, setTicketsToCancel] = useState<number[]>([]);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [waitlist, setWaitlist] = useState<WaitlistPlace | null>(null);
+  const [offeredHolds, setOfferedHolds] = useState<HoldView[]>([]);
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
 
   async function loadSeatMap(eventId: number) {
     setOpening(true);
@@ -131,11 +139,47 @@ export default function App() {
       const map = await fetchSeatMap(eventId);
       setSeatMap(map);
       setSelectedSeatIds((current) => current.filter((id) => seatById(map, id)?.state === "free"));
+      await loadWaitlist(eventId);
     } catch {
       setSeatMap(null);
       setMapError("The seat map did not load.");
     } finally {
       setOpening(false);
+    }
+  }
+
+  async function loadWaitlist(eventId: number) {
+    try {
+      const line = await fetchWaitlist(eventId);
+      setWaitlist(line);
+      if (line?.orderId == null) {
+        setOfferedHolds([]);
+        return;
+      }
+      const offered = await fetchOrder(line.orderId);
+      setOfferedHolds(offered.holds);
+      if (offered.holds.length === 0) {
+        return;
+      }
+      setOrderId(offered.id);
+      setHeldSeatIds(offered.holds.map((hold) => hold.seatId));
+    } catch {
+      setJoinError("The waitlist did not load.");
+    }
+  }
+
+  async function submitJoin() {
+    if (seatMap == null) {
+      return;
+    }
+    setJoining(true);
+    setJoinError(null);
+    try {
+      setWaitlist(await joinWaitlist(seatMap.id));
+    } catch {
+      setJoinError("The waitlist did not accept that request.");
+    } finally {
+      setJoining(false);
     }
   }
 
@@ -184,6 +228,9 @@ export default function App() {
     setSelectedSeatIds([]);
     setHoldError(null);
     setCheckoutError(null);
+    setWaitlist(null);
+    setOfferedHolds([]);
+    setJoinError(null);
     setOrderId(null);
     setHeldSeatIds([]);
     setOrder(null);
@@ -375,6 +422,22 @@ export default function App() {
             </button>
             <p>{selectedSeatIds.length === 0 ? "Select free seats to hold." : `${selectedSeatIds.length} selected`}</p>
             {holdError != null ? <p className="error">{holdError}</p> : null}
+          </div>
+          <div className="hold-bar">
+            {waitlist != null ? (
+              <p>You are number {waitlist.place} in line.</p>
+            ) : seatMap.sections.every((section) => section.seats.every((seat) => seat.state !== "free")) ? (
+              <button type="button" onClick={() => void submitJoin()} disabled={joining}>
+                {joining ? "Joining…" : "Join waitlist"}
+              </button>
+            ) : null}
+            {offeredHolds.length > 0 ? (
+              <p>
+                Held for you: {offeredHolds.map((hold) => hold.label).join(", ")} until{" "}
+                {formatWhen(offeredHolds[0].heldUntil, seatMap.timeZone)}
+              </p>
+            ) : null}
+            {joinError != null ? <p className="error">{joinError}</p> : null}
           </div>
           <div className="hold-bar">
             <label>

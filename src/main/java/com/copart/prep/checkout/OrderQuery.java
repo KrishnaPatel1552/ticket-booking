@@ -66,8 +66,18 @@ public class OrderQuery {
         List<RefundView> refundViews = refunds.findByOrder_IdOrderByIdAsc(orderId).stream()
                 .map(refund -> new RefundView(statusWire(refund.getStatus()), refund.getAmountCents()))
                 .toList();
+        List<HoldView> holds = eventSeats.findByOrderIdAndActiveTrueAndKind(orderId, EventSeatKind.HOLD).stream()
+                .map(claim -> new HoldView(claim.getSeat().getId(), claim.getSeat().getLabel(), claim.getHeldUntil()))
+                .toList();
         String promoCode = order.getPromoCode() == null ? null : order.getPromoCode().getCode();
-        return new OrderView(order.getId(), order.getEvent().getId(), promoCode, paymentView, tickets, refundViews);
+        return new OrderView(
+                order.getId(),
+                order.getEvent().getId(),
+                promoCode,
+                paymentView,
+                tickets,
+                refundViews,
+                holds);
     }
 
     private static String statusWire(PaymentStatus status) {

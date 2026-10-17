@@ -7,6 +7,7 @@ import com.copart.prep.refund.Refund;
 import com.copart.prep.refund.RefundKind;
 import com.copart.prep.refund.RefundRepository;
 import com.copart.prep.refund.RefundStatus;
+import com.copart.prep.waitlist.OfferWaitlist;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -20,10 +21,12 @@ public class FinishRefund {
 
     private final RefundRepository refunds;
     private final EventSeatRepository eventSeats;
+    private final OfferWaitlist offerWaitlist;
 
-    public FinishRefund(RefundRepository refunds, EventSeatRepository eventSeats) {
+    public FinishRefund(RefundRepository refunds, EventSeatRepository eventSeats, OfferWaitlist offerWaitlist) {
         this.refunds = refunds;
         this.eventSeats = eventSeats;
+        this.offerWaitlist = offerWaitlist;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -79,5 +82,6 @@ public class FinishRefund {
             }
             ticket.release();
         }
+        offerWaitlist.offer(refund.getOrder().getEvent().getId(), locked);
     }
 }
