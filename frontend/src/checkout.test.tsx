@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import App from "./App";
 import {
+  cancelTickets,
   checkout,
   fetchOrder,
   fetchSaleTerms,
@@ -75,7 +76,11 @@ function emptyOrder(tickets: OrderView["tickets"] = []): OrderView {
   };
 }
 
-async function holdSeatsOnMap(map: EventSeatMap = harborMap, initialOrder: OrderView = emptyOrder()) {
+async function holdSeatsOnMap(
+  map: EventSeatMap = harborMap,
+  initialOrder: OrderView = emptyOrder(),
+  labels?: string[],
+) {
   vi.mocked(signIn).mockResolvedValueOnce({ email: "ada@example.com", role: "customer" });
   vi.mocked(searchEvents).mockResolvedValueOnce([
     {
@@ -104,7 +109,9 @@ async function holdSeatsOnMap(map: EventSeatMap = harborMap, initialOrder: Order
   await user.click(screen.getByRole("button", { name: "Search" }));
   await user.click(await screen.findByRole("button", { name: "Open seat map" }));
   await screen.findByRole("heading", { name: map.name });
-  const chosen = map.sections.flatMap((section) => section.seats).filter((item) => item.state === "free");
+  const chosen = map.sections
+    .flatMap((section) => section.seats)
+    .filter((item) => item.state === "free" && (labels == null || labels.includes(item.label)));
   for (const seatView of chosen) {
     await user.click(screen.getByRole("button", { name: `${seatView.label} free` }));
   }
@@ -222,11 +229,25 @@ test("a declined payment stays on checkout, shows declined, and reloads the seat
   await user.click(screen.getByRole("button", { name: "Check out" }));
 
   const checkoutScreen = document.querySelector("section.checkout-screen");
-  expect(checkoutScreen).not.toBeNull();
-  expect(await within(checkoutScreen as HTMLElement).findByText("declined")).toBeTruthy();
+  if (!(checkoutScreen instanceof HTMLElement)) {
+    throw new Error("decline left checkout");
+  }
+  expect(await within(checkoutScreen).findByText("declined")).toBeTruthy();
+  expect(within(checkoutScreen).queryByText("Jun 12, 2026, 7:10 PM")).toBeNull();
+  expect(within(checkoutScreen).queryByText("A1")).toBeNull();
+  expect(within(checkoutScreen).queryByText("A2")).toBeNull();
+  expect(within(checkoutScreen).queryByRole("button", { name: "Check out" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Tickets" })).toBeNull();
   expect(vi.mocked(checkout)).toHaveBeenCalledWith(9, [1, 2], "decline");
   expect(vi.mocked(fetchSeatMap).mock.calls.length).toBeGreaterThan(loadsBefore);
+
+  await user.click(within(checkoutScreen).getByRole("button", { name: "Return to order" }));
+
+  expect(document.querySelector("section.checkout-screen")).toBeNull();
+  expect(document.querySelector("section.hold-screen")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Check out" })).toBeNull();
+  expect(screen.queryByText("Jun 12, 2026, 7:10 PM")).toBeNull();
+  expect(screen.getByRole("grid")).toBeTruthy();
 });
 
 test("an unknown payment stays on checkout, shows unknown, and leaves the holds", async () => {
@@ -260,6 +281,13 @@ test("an unknown payment stays on checkout, shows unknown, and leaves the holds"
   expect(screen.queryByRole("grid")).toBeNull();
   expect(vi.mocked(checkout)).toHaveBeenCalledWith(9, [1, 2], "unknown");
   expect(vi.mocked(fetchSeatMap).mock.calls.length).toBe(loadsBefore);
+
+  await user.click(within(checkoutScreen).getByRole("button", { name: "Return to order" }));
+
+  expect(document.querySelector("section.hold-screen")).not.toBeNull();
+  expect(screen.getByRole("button", { name: "Check out" })).toBeTruthy();
+  expect(screen.getByText("A1")).toBeTruthy();
+  expect(screen.getByText("A2")).toBeTruthy();
 });
 
 test("a checkout that does not complete shows that under Check out", async () => {
@@ -280,32 +308,160 @@ test("a checkout that does not complete shows that under Check out", async () =>
   expect(screen.queryByRole("status")).toBeNull();
 });
 
-test("checking out removes the earlier order link", async () => {
-  const user = await holdSeatsOnMap(harborMap, emptyOrder([{ seatId: 8, label: "B4" }]));
-  expect(screen.getByRole("link", { name: "Tickets B4" })).toBeTruthy();
+const visitMap: EventSeatMap = {
+  ...harborMap,
+  sections: [
+    {
+      name: "Orchestra",
+      seats: [
+        seat({ id: 1, label: "A1", state: "free", priceCents: 5000 }),
+        seat({ id: 3, label: "B1", state: "free", priceCents: 5000 }),
+      ],
+    },
+  ],
+};
 
+test("a first hold does not link to tickets on that same order", async () => {
+  await holdSeatsOnMap(harborMap, emptyOrder([{ seatId: 8, label: "B4" }]));
+
+  expect(screen.queryByRole("link", { name: "Tickets B4" })).toBeNull();
+  expect(screen.queryByRole("link", { name: /Tickets/ })).toBeNull();
+});
+
+test("a later hold links to an earlier order from this visit that still has tickets", async () => {
+  const user = await holdSeatsOnMap(visitMap, emptyOrder(), ["A1"]);
+  expect(screen.queryByRole("link", { name: /Tickets/ })).toBeNull();
   await user.click(screen.getByRole("button", { name: "Check out" }));
   vi.mocked(fetchOrder).mockResolvedValueOnce({
     id: 9,
     eventId: 7,
     promoCode: null,
-    payment: { status: "unknown", amountCents: 10250 },
+    payment: { status: "succeeded", amountCents: 5250 },
+    tickets: [{ seatId: 1, label: "A1" }],
+    refunds: [],
+    holds: [],
+  });
+  await user.click(screen.getByRole("radio", { name: "success" }));
+  await user.click(screen.getByRole("button", { name: "Check out" }));
+  await screen.findByRole("region", { name: "Tickets" });
+
+  await user.click(screen.getByRole("button", { name: "Seat map" }));
+  await user.click(screen.getByRole("button", { name: "B1 free" }));
+  vi.mocked(holdSeats).mockResolvedValueOnce({
+    orderId: 10,
+    seatIds: [3],
+    heldUntil: "2026-06-12T23:20:00.000Z",
+  });
+  await user.click(screen.getByRole("button", { name: "Hold seats" }));
+  await screen.findByText("Jun 12, 2026, 7:20 PM");
+
+  const link = screen.getByRole("link", { name: "Tickets A1" });
+  await user.click(link);
+
+  const tickets = document.querySelector("section.tickets-screen");
+  if (!(tickets instanceof HTMLElement)) {
+    throw new Error("the earlier order did not open its tickets");
+  }
+  expect(within(tickets).getByRole("checkbox", { name: "A1" })).toBeTruthy();
+  expect(within(tickets).getByRole("button", { name: "Cancel selected" })).toBeTruthy();
+  expect(document.querySelector("section.hold-screen")).toBeNull();
+
+  await user.click(within(tickets).getByRole("button", { name: "Return to order" }));
+
+  expect(document.querySelector("section.tickets-screen")).toBeNull();
+  expect(document.querySelector("section.hold-screen")).not.toBeNull();
+  expect(screen.getByRole("link", { name: "Tickets A1" })).toBeTruthy();
+  expect(screen.getByText("B1")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Check out" })).toBeTruthy();
+});
+
+test("a later hold does not link an earlier order that no longer has tickets", async () => {
+  const user = await holdSeatsOnMap(visitMap, emptyOrder(), ["A1"]);
+  await user.click(screen.getByRole("button", { name: "Check out" }));
+  vi.mocked(fetchOrder).mockResolvedValueOnce({
+    id: 9,
+    eventId: 7,
+    promoCode: null,
+    payment: { status: "succeeded", amountCents: 5250 },
+    tickets: [{ seatId: 1, label: "A1" }],
+    refunds: [],
+    holds: [],
+  });
+  await user.click(screen.getByRole("radio", { name: "success" }));
+  await user.click(screen.getByRole("button", { name: "Check out" }));
+  const tickets = await screen.findByRole("region", { name: "Tickets" });
+  vi.mocked(cancelTickets).mockResolvedValueOnce({
+    id: 9,
+    eventId: 7,
+    promoCode: null,
+    payment: { status: "succeeded", amountCents: 5250 },
+    tickets: [],
+    refunds: [{ status: "succeeded", amountCents: 5000 }],
+    holds: [],
+  });
+  await user.click(within(tickets).getByRole("checkbox", { name: "A1" }));
+  await user.click(within(tickets).getByRole("radio", { name: "success" }));
+  await user.click(within(tickets).getByRole("button", { name: "Cancel selected" }));
+  expect(await within(tickets).findByText("$50.00")).toBeTruthy();
+
+  await user.click(screen.getByRole("button", { name: "Seat map" }));
+  await user.click(screen.getByRole("button", { name: "B1 free" }));
+  vi.mocked(holdSeats).mockResolvedValueOnce({
+    orderId: 10,
+    seatIds: [3],
+    heldUntil: "2026-06-12T23:20:00.000Z",
+  });
+  await user.click(screen.getByRole("button", { name: "Hold seats" }));
+  await screen.findByText("Jun 12, 2026, 7:20 PM");
+
+  expect(screen.queryByRole("link", { name: /Tickets/ })).toBeNull();
+});
+
+test("checking out removes the earlier order link", async () => {
+  const user = await holdSeatsOnMap(visitMap, emptyOrder(), ["A1"]);
+  await user.click(screen.getByRole("button", { name: "Check out" }));
+  vi.mocked(fetchOrder).mockResolvedValueOnce({
+    id: 9,
+    eventId: 7,
+    promoCode: null,
+    payment: { status: "succeeded", amountCents: 5250 },
+    tickets: [{ seatId: 1, label: "A1" }],
+    refunds: [],
+    holds: [],
+  });
+  await user.click(screen.getByRole("radio", { name: "success" }));
+  await user.click(screen.getByRole("button", { name: "Check out" }));
+  await screen.findByRole("region", { name: "Tickets" });
+  await user.click(screen.getByRole("button", { name: "Seat map" }));
+  await user.click(screen.getByRole("button", { name: "B1 free" }));
+  vi.mocked(holdSeats).mockResolvedValueOnce({
+    orderId: 10,
+    seatIds: [3],
+    heldUntil: "2026-06-12T23:20:00.000Z",
+  });
+  await user.click(screen.getByRole("button", { name: "Hold seats" }));
+  await screen.findByText("Jun 12, 2026, 7:20 PM");
+  expect(screen.getByRole("link", { name: "Tickets A1" })).toBeTruthy();
+
+  await user.click(screen.getByRole("button", { name: "Check out" }));
+  vi.mocked(fetchOrder).mockResolvedValueOnce({
+    id: 10,
+    eventId: 7,
+    promoCode: null,
+    payment: { status: "unknown", amountCents: 5250 },
     tickets: [],
     refunds: [],
-    holds: [
-      { seatId: 1, label: "A1", heldUntil: "2026-06-12T23:10:00.000Z" },
-      { seatId: 2, label: "A2", heldUntil: "2026-06-12T23:10:00.000Z" },
-    ],
+    holds: [{ seatId: 3, label: "B1", heldUntil: "2026-06-12T23:20:00.000Z" }],
   });
   await user.click(screen.getByRole("radio", { name: "unknown" }));
   await user.click(screen.getByRole("button", { name: "Check out" }));
   await screen.findByRole("status");
   await user.click(screen.getByRole("button", { name: "Return to order" }));
 
-  expect(screen.queryByRole("link", { name: "Tickets B4" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Tickets A1" })).toBeNull();
   expect(document.querySelector("section.hold-screen")).not.toBeNull();
-  expect(screen.getByText("A1")).toBeTruthy();
-  expect(screen.getByText("A2")).toBeTruthy();
+  expect(screen.getByText("B1")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Check out" })).toBeTruthy();
 });
 
 test("a timeout result shows the order's unknown payment and leaves the holds", async () => {

@@ -189,6 +189,16 @@ test("an offered hold is named on the seat map and opens the order screen", asyn
   expect(screen.getByLabelText(/promo code/i)).toBeTruthy();
 });
 
+test("Join waitlist is the cyan action when no seat is free", async () => {
+  vi.mocked(fetchWaitlist).mockResolvedValue(null);
+  await openMap(soldOut);
+
+  const join = screen.getByRole("button", { name: "Join waitlist" });
+  const hold = screen.getByRole("button", { name: "Hold seats" });
+  expect(getComputedStyle(join).backgroundColor).toBe("rgb(14, 165, 233)");
+  expect(getComputedStyle(hold).backgroundColor).not.toBe("rgb(14, 165, 233)");
+});
+
 test("Join waitlist is one column and its target is at least 44px", async () => {
   vi.mocked(fetchWaitlist).mockResolvedValue(null);
   await openMap(soldOut);

@@ -21,7 +21,6 @@ import {
   type SeatState,
   type SeatView,
   type SignedIn,
-  type TicketView,
   type WaitlistPlace,
 } from "./api";
 
@@ -242,7 +241,8 @@ export default function App() {
     heldUntil: string;
   } | null>(null);
   const [saleTerms, setSaleTerms] = useState<SaleTermsView | null>(null);
-  const [priorTickets, setPriorTickets] = useState<TicketView[]>([]);
+  const [priceUnavailable, setPriceUnavailable] = useState(false);
+  const [earlierOrder, setEarlierOrder] = useState<OrderView | null>(null);
   const [promoCode, setPromoCode] = useState<string | null>(null);
   const [promoDraft, setPromoDraft] = useState("");
   const [promoError, setPromoError] = useState<string | null>(null);
@@ -373,7 +373,8 @@ export default function App() {
     setHoldError(null);
     setConfirmedHold(null);
     setSaleTerms(null);
-    setPriorTickets([]);
+    setPriceUnavailable(false);
+    setEarlierOrder(null);
     setPromoCode(null);
     setPromoDraft("");
     setPromoError(null);
@@ -435,9 +436,7 @@ export default function App() {
       return;
     }
     const orderId = waitlist.orderId;
-    const details = await loadHoldDetails(orderId);
-    setSaleTerms(details.terms);
-    setPriorTickets(details.tickets);
+    setSaleTerms(await loadSaleTerms());
     setPromoCode(null);
     setPromoDraft("");
     setPromoError(null);
@@ -462,9 +461,7 @@ export default function App() {
     setHoldError(null);
     try {
       const held = await holdSeats(eventId, seatsToHold);
-      const details = await loadHoldDetails(held.orderId);
-      setSaleTerms(details.terms);
-      setPriorTickets(details.tickets);
+      setSaleTerms(await loadSaleTerms());
       setPromoCode(null);
       setPromoDraft("");
       setPromoError(null);
@@ -483,23 +480,42 @@ export default function App() {
     }
   }
 
-  async function loadHoldDetails(orderId: number): Promise<{ terms: SaleTermsView | null; tickets: TicketView[] }> {
-    let terms: SaleTermsView | null = null;
+  async function loadSaleTerms(): Promise<SaleTermsView | null> {
     try {
-      terms = await fetchSaleTerms();
+      const terms = await fetchSaleTerms();
+      setPriceUnavailable(false);
+      return terms;
     } catch {
-      terms = null;
+      setPriceUnavailable(true);
+      return null;
     }
-    let tickets: TicketView[] = [];
-    try {
-      const order = await fetchOrder(orderId);
-      if (order != null && order.tickets.length > 0) {
-        tickets = order.tickets;
-      }
-    } catch {
-      tickets = [];
+  }
+
+  function openEarlierTickets() {
+    if (earlierOrder == null || earlierOrder.tickets.length === 0) {
+      return;
     }
-    return { terms, tickets };
+    setPaidOrder(earlierOrder);
+    setTicketIdsToCancel([]);
+    setRefundMock(null);
+    setRefundScript(null);
+    setRefundAmountCents(null);
+    setCancelError(null);
+  }
+
+  function closeTickets() {
+    setPaidOrder(null);
+    setTicketIdsToCancel([]);
+    setRefundMock(null);
+    setRefundScript(null);
+    setRefundAmountCents(null);
+    setCancelError(null);
+  }
+
+  function backToSeatMap() {
+    closeTickets();
+    setConfirmedHold(null);
+    setCheckoutOpen(false);
   }
 
   function leaveHold() {
@@ -507,7 +523,6 @@ export default function App() {
     setPromoCode(null);
     setPromoDraft("");
     setPromoError(null);
-    setPriorTickets([]);
     setSelectedSeatIds([]);
     setCheckoutOpen(false);
     setPaymentMock(null);
@@ -533,10 +548,11 @@ export default function App() {
     try {
       await checkout(orderId, seatIds, mock);
       const order = await fetchOrder(orderId);
-      setPriorTickets([]);
       const status = order.payment?.status ?? null;
+      setEarlierOrder(status === "succeeded" && order.tickets.length > 0 ? order : null);
       if (status === "succeeded") {
         setPaidOrder(order);
+        setConfirmedHold(null);
         setTicketIdsToCancel([]);
         setRefundMock(null);
         setRefundScript(null);
@@ -546,8 +562,11 @@ export default function App() {
         return;
       }
       setPaymentStatus(status);
-      if (status === "declined" && eventId != null) {
-        await loadSeatMap(eventId);
+      if (status === "declined") {
+        setConfirmedHold(null);
+        if (eventId != null) {
+          await loadSeatMap(eventId);
+        }
       }
     } catch {
       setCheckoutError("Checkout did not complete.");
@@ -574,6 +593,12 @@ export default function App() {
       const order = await cancelTickets(orderId, seatIds, mock);
       const latestRefund = order.refunds[order.refunds.length - 1];
       setPaidOrder(order);
+      setEarlierOrder((current) => {
+        if (current == null || current.id !== order.id) {
+          return current;
+        }
+        return order.tickets.length > 0 ? order : null;
+      });
       setTicketIdsToCancel([]);
       setRefundScript(mock);
       setRefundAmountCents(latestRefund == null ? null : latestRefund.amountCents);
@@ -603,6 +628,21 @@ export default function App() {
     }
   }
 
+  function priceLines(seatIds: number[]) {
+    if (seatMap == null) {
+      return null;
+    }
+    return (
+      <ul className="price-lines" aria-label="Price">
+        {priceUnavailable ? (
+          <li>The price did not load.</li>
+        ) : (
+          orderPriceLines(seatMap, seatIds, pricedAt, saleTerms, promoCode).map((line) => <li key={line}>{line}</li>)
+        )}
+      </ul>
+    );
+  }
+
   const openedEvent = events.find((event) => event.id === openEventId) ?? null;
   const ticketTotalCents =
     seatMap == null
@@ -611,6 +651,11 @@ export default function App() {
           const chosen = seatById(seatMap, id);
           return chosen == null ? sum : sum + currentPriceCents(seatMap, chosen, pricedAt);
         }, 0);
+  const joinWaitlistShown =
+    seatMap != null &&
+    waitlist == null &&
+    offeredHolds.length === 0 &&
+    seatMap.sections.every((section) => section.seats.every((seat) => seat.state !== "free"));
 
   if (signedIn == null) {
     return (
@@ -735,40 +780,49 @@ export default function App() {
             Cancel selected
           </button>
           {cancelError != null ? <p className="error">{cancelError}</p> : null}
+          {confirmedHold == null ? (
+            <button type="button" className="secondary" onClick={backToSeatMap}>
+              Seat map
+            </button>
+          ) : (
+            <button type="button" className="secondary" onClick={closeTickets}>
+              Return to order
+            </button>
+          )}
         </section>
-      ) : confirmedHold != null && openedEvent != null && seatMap != null && checkoutOpen ? (
+      ) : checkoutOpen && openedEvent != null && seatMap != null && (confirmedHold != null || paymentStatus != null) ? (
         <section className="checkout-screen">
           <h3>Check out</h3>
-          <p>{formatWhen(confirmedHold.heldUntil, openedEvent.timeZone)}</p>
-          <ul>
-            {confirmedHold.labels.map((label) => (
-              <li key={label}>{label}</li>
-            ))}
-          </ul>
-          <ul className="price-lines" aria-label="Price">
-            {orderPriceLines(seatMap, confirmedHold.seatIds, pricedAt, saleTerms, promoCode).map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-          <fieldset className="payment-result">
-            <legend>Payment result</legend>
-            {(["success", "decline", "timeout", "unknown"] as const).map((mock) => (
-              <label key={mock}>
-                <input
-                  type="radio"
-                  name="payment-result"
-                  value={mock}
-                  checked={paymentMock === mock}
-                  onChange={() => setPaymentMock(mock)}
-                />
-                {mock}
-              </label>
-            ))}
-          </fieldset>
-          <button type="button" className="primary" onClick={() => void submitCheckout()}>
-            Check out
-          </button>
-          {checkoutError != null ? <p className="error">{checkoutError}</p> : null}
+          {confirmedHold != null ? (
+            <>
+              <p>{formatWhen(confirmedHold.heldUntil, openedEvent.timeZone)}</p>
+              <ul>
+                {confirmedHold.labels.map((label) => (
+                  <li key={label}>{label}</li>
+                ))}
+              </ul>
+              {priceLines(confirmedHold.seatIds)}
+              <fieldset className="payment-result">
+                <legend>Payment result</legend>
+                {(["success", "decline", "timeout", "unknown"] as const).map((mock) => (
+                  <label key={mock}>
+                    <input
+                      type="radio"
+                      name="payment-result"
+                      value={mock}
+                      checked={paymentMock === mock}
+                      onChange={() => setPaymentMock(mock)}
+                    />
+                    {mock}
+                  </label>
+                ))}
+              </fieldset>
+              <button type="button" className="primary" onClick={() => void submitCheckout()}>
+                Check out
+              </button>
+              {checkoutError != null ? <p className="error">{checkoutError}</p> : null}
+            </>
+          ) : null}
           {paymentStatus != null ? (
             <p className="payment-status" role="status">
               {paymentStatus}
@@ -795,11 +849,7 @@ export default function App() {
               <li key={label}>{label}</li>
             ))}
           </ul>
-          <ul className="price-lines" aria-label="Price">
-            {orderPriceLines(seatMap, confirmedHold.seatIds, pricedAt, saleTerms, promoCode).map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
+          {priceLines(confirmedHold.seatIds)}
           <form className="promo" onSubmit={(event) => void submitPromo(event)}>
             <label>
               Promo code
@@ -810,9 +860,16 @@ export default function App() {
             </button>
             {promoError != null ? <p className="error">{promoError}</p> : null}
           </form>
-          {priorTickets.length > 0 ? (
-            <a className="ticket-link" href={`#tickets-${confirmedHold.orderId}`}>
-              Tickets {priorTickets.map((ticket) => ticket.label).join(", ")}
+          {earlierOrder != null && earlierOrder.tickets.length > 0 ? (
+            <a
+              className="ticket-link"
+              href={`#tickets-${earlierOrder.id}`}
+              onClick={(event) => {
+                event.preventDefault();
+                openEarlierTickets();
+              }}
+            >
+              Tickets {earlierOrder.tickets.map((ticket) => ticket.label).join(", ")}
             </a>
           ) : null}
           <button
@@ -940,7 +997,7 @@ export default function App() {
             <div className="hold-action">
               <button
                 type="button"
-                className="primary"
+                className={joinWaitlistShown ? "secondary" : "primary"}
                 onClick={() => void submitHold()}
                 disabled={holding || selectedSeatIds.length === 0}
               >

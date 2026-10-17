@@ -65,7 +65,11 @@ const harborMap: EventSeatMap = {
   ],
 };
 
-async function holdSeatsOnMap(map: EventSeatMap = harborMap, labels?: string[]) {
+async function holdSeatsOnMap(
+  map: EventSeatMap = harborMap,
+  labels?: string[],
+  saleTerms: "loaded" | "missing" = "loaded",
+) {
   vi.mocked(signIn).mockResolvedValueOnce({ email: "ada@example.com", role: "customer" });
   vi.mocked(searchEvents).mockResolvedValueOnce([
     {
@@ -79,11 +83,15 @@ async function holdSeatsOnMap(map: EventSeatMap = harborMap, labels?: string[]) 
   ]);
   vi.mocked(fetchSeatMap).mockResolvedValue(map);
   vi.mocked(fetchWaitlist).mockResolvedValue(null);
-  vi.mocked(fetchSaleTerms).mockResolvedValue({
-    groupRateThreshold: 4,
-    groupRateAmountCents: 800,
-    serviceFeeCents: 250,
-  });
+  if (saleTerms === "missing") {
+    vi.mocked(fetchSaleTerms).mockRejectedValue(new Error("down"));
+  } else {
+    vi.mocked(fetchSaleTerms).mockResolvedValue({
+      groupRateThreshold: 4,
+      groupRateAmountCents: 800,
+      serviceFeeCents: 250,
+    });
+  }
   vi.mocked(fetchOrder).mockResolvedValue({
     id: 9,
     eventId: map.id,
@@ -267,4 +275,22 @@ test("returning to the seat map clears this hold so a different selection can be
   expect(within(order).queryByText("A1")).toBeNull();
   expect(screen.queryByRole("grid")).toBeNull();
   expect(within(order).getByText("Price tier $42.00")).toBeTruthy();
+});
+
+test("a price that does not load says so and keeps the seats and the hold end", async () => {
+  await holdSeatsOnMap(harborMap, undefined, "missing");
+
+  const order = screen.getByText("Jun 12, 2026, 7:10 PM").closest("section");
+  if (order == null) {
+    throw new Error("the hold was not on its own screen");
+  }
+  expect(within(order).getByText("A1")).toBeTruthy();
+  expect(within(order).getByText("A4")).toBeTruthy();
+  expect(within(order).getByText("Jun 12, 2026, 7:10 PM")).toBeTruthy();
+  const prices = within(order).getByRole("list", { name: "Price" });
+  expect(within(prices).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+    "The price did not load.",
+  ]);
+  expect(within(prices).queryByText(/Service fee/)).toBeNull();
+  expect(within(prices).queryByText(/^Total/)).toBeNull();
 });

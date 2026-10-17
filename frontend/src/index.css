@@ -701,6 +701,24 @@ button.seat:disabled {
   margin-left: auto;
 }
 
+.events-screen .hold-action .secondary {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.8rem 1.35rem;
+  border: 1px solid rgba(226, 232, 240, 0.4);
+  border-radius: 0.7rem;
+  background: transparent;
+  color: #e2e8f0;
+  font-family: Inter, sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.events-screen .hold-action .secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .events-screen .ticket-total {
   color: #f8fafc;
   font-size: 1.65rem;
@@ -1079,6 +1097,18 @@ button.seat:disabled {
 .events-screen .tickets-screen .refund-script label:hover,
 .events-screen .tickets-screen .refund-script label:focus-within {
   border-color: #38bdf8;
+}
+
+.events-screen .tickets-screen .secondary {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid rgba(226, 232, 240, 0.4);
+  border-radius: 0.7rem;
+  background: transparent;
+  color: #e2e8f0;
+  font-family: Inter, sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
 }
 
 .events-screen .tickets-screen .primary {
