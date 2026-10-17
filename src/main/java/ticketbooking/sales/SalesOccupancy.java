@@ -5,6 +5,7 @@ import ticketbooking.event.Event;
 import ticketbooking.event.EventRepository;
 import ticketbooking.hold.EventSeatKind;
 import ticketbooking.hold.EventSeatRepository;
+import ticketbooking.hold.ExpiredHoldRelease;
 import ticketbooking.payment.PaymentRepository;
 import ticketbooking.venue.SeatRepository;
 import org.springframework.http.HttpStatus;
@@ -21,24 +22,28 @@ public class SalesOccupancy {
     private final EventSeatRepository eventSeats;
     private final SeatBlockRepository seatBlocks;
     private final PaymentRepository payments;
+    private final ExpiredHoldRelease expiredHoldRelease;
 
     public SalesOccupancy(
             EventRepository events,
             SeatRepository seats,
             EventSeatRepository eventSeats,
             SeatBlockRepository seatBlocks,
-            PaymentRepository payments) {
+            PaymentRepository payments,
+            ExpiredHoldRelease expiredHoldRelease) {
         this.events = events;
         this.seats = seats;
         this.eventSeats = eventSeats;
         this.seatBlocks = seatBlocks;
         this.payments = payments;
+        this.expiredHoldRelease = expiredHoldRelease;
     }
 
-    @Transactional(isolation = Isolation.READ_COMMITTED, readOnly = true)
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public SalesView read(long eventId) {
         Event event = events.findById(eventId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        expiredHoldRelease.release(eventId);
         long held = eventSeats.countByEventIdAndActiveTrueAndKind(eventId, EventSeatKind.HOLD);
         long tickets = eventSeats.countByEventIdAndActiveTrueAndKind(eventId, EventSeatKind.TICKET);
         long blocked = seatBlocks.countByEventIdAndActiveTrue(eventId);

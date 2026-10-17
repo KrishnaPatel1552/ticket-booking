@@ -40,6 +40,7 @@ public class HoldSeats {
     private final EntityManager entityManager;
     private final HoldGate holdGate;
     private final SeatRowLock seatRowLock;
+    private final ExpiredHoldRelease expiredHoldRelease;
 
     public HoldSeats(
             AccountRepository accounts,
@@ -52,7 +53,8 @@ public class HoldSeats {
             AppClock clock,
             EntityManager entityManager,
             HoldGate holdGate,
-            SeatRowLock seatRowLock) {
+            SeatRowLock seatRowLock,
+            ExpiredHoldRelease expiredHoldRelease) {
         this.accounts = accounts;
         this.events = events;
         this.seats = seats;
@@ -64,6 +66,7 @@ public class HoldSeats {
         this.entityManager = entityManager;
         this.holdGate = holdGate;
         this.seatRowLock = seatRowLock;
+        this.expiredHoldRelease = expiredHoldRelease;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -84,6 +87,7 @@ public class HoldSeats {
             }
             chosen.add(seat);
         }
+        expiredHoldRelease.release(event.getId());
         lockCustomerEvent(customer.getId(), event.getId());
         Instant now = clock.now();
         CustomerOrder order = orders.findByCustomerIdAndEventIdAndOpenForHoldsTrue(customer.getId(), event.getId())
@@ -94,6 +98,9 @@ public class HoldSeats {
             order = null;
         }
         long onOrder = order == null ? 0 : eventSeats.countActiveOnOrder(order.getId());
+        if (order != null && onOrder == 0) {
+            order.attachPromoCode(null);
+        }
         long atEvent = eventSeats.countActiveForCustomerAtEvent(customer.getId(), event.getId());
         long remaining = Math.min(ORDER_CAP - onOrder, EVENT_CAP - atEvent);
         if (seatIds.size() > remaining) {
@@ -119,7 +126,12 @@ public class HoldSeats {
         } catch (DataIntegrityViolationException exception) {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
-        return new HoldSeatsResponse(order.getId(), List.copyOf(seatIds), heldUntil);
+        List<Long> allSeatIds = eventSeats
+                .findByOrderIdAndActiveTrueAndKindOrderBySeatIdAsc(order.getId(), EventSeatKind.HOLD)
+                .stream()
+                .map(claim -> claim.getSeat().getId())
+                .toList();
+        return new HoldSeatsResponse(order.getId(), allSeatIds, heldUntil);
     }
 
     private void lockCustomerEvent(long customerId, long eventId) {

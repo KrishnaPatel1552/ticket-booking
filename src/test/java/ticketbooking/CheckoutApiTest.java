@@ -428,6 +428,13 @@ class CheckoutApiTest {
         assertThat(seatState(map, "A1")).isEqualTo("ticket");
         assertThat(seatState(map, "A2")).isEqualTo("ticket");
         assertThat(seatState(map, "A3")).isEqualTo("held");
+
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2035-01-01T12:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode afterExpiry = ada.get("/api/events/" + eventId).getBody();
+        assertThat(seatState(afterExpiry, "A1")).isEqualTo("ticket");
+        assertThat(seatState(afterExpiry, "A2")).isEqualTo("ticket");
+        assertThat(seatState(afterExpiry, "A3")).isEqualTo("free");
     }
 
     @Test

@@ -12,5 +12,9 @@ public record EventSeatMap(
         String timeZone,
         Instant earlyBirdStartsAt,
         Instant earlyBirdEndsAt,
-        List<SectionSeats> sections) {
+        List<SectionSeats> sections,
+        boolean cancelled,
+        boolean rescheduled,
+        Long activeHoldOrderId,
+        List<Long> paidOrderIds) {
 }
