@@ -95,4 +95,14 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
             order by ticket.id asc
             """)
     List<EventSeat> findTickets(@Param("eventId") long eventId);
+
+    @Query("""
+            select claim
+            from EventSeat claim
+            where claim.event.id = :eventId
+              and claim.active = true
+              and claim.kind = com.copart.prep.hold.EventSeatKind.HOLD
+              and claim.fromWaitlist = true
+            """)
+    List<EventSeat> findActiveWaitlistHoldsForEvent(@Param("eventId") long eventId);
 }

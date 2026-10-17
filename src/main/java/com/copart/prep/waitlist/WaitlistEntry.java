@@ -9,6 +9,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.time.Instant;
 
 @Entity
 @Table(name = "waitlist_entry")
@@ -23,6 +24,8 @@ public class WaitlistEntry {
 
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
     private Account customer;
+
+    private Instant endedAt;
 
     protected WaitlistEntry() {
     }
@@ -42,5 +45,13 @@ public class WaitlistEntry {
 
     public Account getCustomer() {
         return customer;
+    }
+
+    public Instant getEndedAt() {
+        return endedAt;
+    }
+
+    public void end(Instant at) {
+        this.endedAt = at;
     }
 }

@@ -57,7 +57,7 @@ public class JoinWaitlist {
         if (entries.findByEventIdAndCustomerId(event.getId(), customer.getId()).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
-        if (anySeatFree(event)) {
+        if (event.isCancelled() || anySeatFree(event)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
         try {
@@ -77,6 +77,9 @@ public class JoinWaitlist {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         WaitlistEntry entry = entries.findByEventIdAndCustomerId(event.getId(), customer.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        if (entry.getEndedAt() != null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
         return view(entry);
     }
 

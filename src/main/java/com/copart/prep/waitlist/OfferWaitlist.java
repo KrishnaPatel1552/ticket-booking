@@ -3,6 +3,7 @@ package com.copart.prep.waitlist;
 import com.copart.prep.block.SeatBlockRepository;
 import com.copart.prep.clock.AppClock;
 import com.copart.prep.event.Event;
+import com.copart.prep.event.EventRepository;
 import com.copart.prep.hold.CustomerOrder;
 import com.copart.prep.hold.CustomerOrderRepository;
 import com.copart.prep.hold.EventSeat;
@@ -31,6 +32,7 @@ public class OfferWaitlist {
     private static final int EVENT_CAP = 12;
 
     private final WaitlistEntryRepository entries;
+    private final EventRepository events;
     private final EventSeatRepository eventSeats;
     private final SeatRepository seats;
     private final SeatBlockRepository seatBlocks;
@@ -42,6 +44,7 @@ public class OfferWaitlist {
 
     public OfferWaitlist(
             WaitlistEntryRepository entries,
+            EventRepository events,
             EventSeatRepository eventSeats,
             SeatRepository seats,
             SeatBlockRepository seatBlocks,
@@ -51,6 +54,7 @@ public class OfferWaitlist {
             EntityManager entityManager,
             SeatRowLock seatRowLock) {
         this.entries = entries;
+        this.events = events;
         this.eventSeats = eventSeats;
         this.seats = seats;
         this.seatBlocks = seatBlocks;
@@ -66,6 +70,9 @@ public class OfferWaitlist {
         if (released.isEmpty()) {
             return;
         }
+        if (events.findById(eventId).orElseThrow().isCancelled()) {
+            return;
+        }
         entityManager.flush();
         List<EventSeat> freed = new ArrayList<>(released);
         freed.sort(Comparator.comparing(claim -> claim.getSeat().getId()));
@@ -78,7 +85,7 @@ public class OfferWaitlist {
         if (!free(eventId, seatId)) {
             return;
         }
-        for (WaitlistEntry entry : entries.findByEventIdOrderByIdAsc(eventId)) {
+        for (WaitlistEntry entry : entries.findByEventIdAndEndedAtIsNullOrderByIdAsc(eventId)) {
             if (skipCustomerId != null && skipCustomerId.equals(entry.getCustomer().getId())) {
                 continue;
             }

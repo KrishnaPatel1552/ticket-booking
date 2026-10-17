@@ -56,6 +56,7 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
             select count(payment)
             from Payment payment
             where payment.promoCode.id = :promoCodeId
+              and payment.order.event.cancelledAt is null
               and payment.status in (
                 com.copart.prep.payment.PaymentStatus.PENDING,
                 com.copart.prep.payment.PaymentStatus.UNKNOWN,
@@ -69,6 +70,7 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
             from Payment payment
             where payment.promoCode.id = :promoCodeId
               and payment.order.customer.id = :customerId
+              and payment.order.event.cancelledAt is null
               and payment.status in (
                 com.copart.prep.payment.PaymentStatus.PENDING,
                 com.copart.prep.payment.PaymentStatus.UNKNOWN,

@@ -10,5 +10,7 @@ public interface WaitlistEntryRepository extends JpaRepository<WaitlistEntry, Lo
 
     List<WaitlistEntry> findByEventIdOrderByIdAsc(long eventId);
 
+    List<WaitlistEntry> findByEventIdAndEndedAtIsNullOrderByIdAsc(long eventId);
+
     long countByEventIdAndIdLessThanEqual(long eventId, long id);
 }
