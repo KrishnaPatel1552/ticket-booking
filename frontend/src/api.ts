@@ -71,6 +71,8 @@ export async function fetchSeatMap(eventId: number): Promise<EventSeatMap> {
 
 export type PaymentStatus = "pending" | "unknown" | "succeeded" | "declined";
 
+export type RefundStatus = "pending" | "unknown" | "succeeded" | "failed";
+
 export type PaymentMock = "success" | "decline" | "timeout" | "unknown";
 
 export type HeldSeats = {
@@ -84,12 +86,18 @@ export type TicketView = {
   label: string;
 };
 
+export type RefundView = {
+  status: RefundStatus;
+  amountCents: number;
+};
+
 export type OrderView = {
   id: number;
   eventId: number;
   promoCode: string | null;
   payment: { status: PaymentStatus; amountCents: number } | null;
   tickets: TicketView[];
+  refunds: RefundView[];
 };
 
 export async function holdSeats(eventId: number, seatIds: number[]): Promise<HeldSeats> {
@@ -122,6 +130,16 @@ export async function checkout(orderId: number, seatIds: number[], mock: Payment
   if (!response.ok) {
     throw new Error(String(response.status));
   }
+}
+
+export async function cancelTickets(orderId: number, seatIds: number[], mock: PaymentMock): Promise<OrderView> {
+  const response = await fetch(`/api/orders/${orderId}/cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ seatIds, mock }),
+  });
+  return readJson<OrderView>(response);
 }
 
 export async function fetchOrder(orderId: number): Promise<OrderView> {

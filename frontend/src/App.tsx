@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import {
   attachPromoCode,
+  cancelTickets,
   checkout,
   fetchOrder,
   fetchSeatMap,
@@ -12,6 +13,7 @@ import {
   type OrderView,
   type PaymentMock,
   type PaymentStatus,
+  type RefundStatus,
   type SeatState,
   type SeatView,
   type SignedIn,
@@ -51,6 +53,23 @@ function stateLabel(state: SeatState): string {
       return "Ticket";
     default: {
       const unexpected: never = state;
+      return unexpected;
+    }
+  }
+}
+
+function refundLabel(status: RefundStatus): string {
+  switch (status) {
+    case "pending":
+      return "Pending";
+    case "unknown":
+      return "Unknown";
+    case "succeeded":
+      return "Succeeded";
+    case "failed":
+      return "Failed";
+    default: {
+      const unexpected: never = status;
       return unexpected;
     }
   }
@@ -100,6 +119,10 @@ export default function App() {
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [order, setOrder] = useState<OrderView | null>(null);
+  const [refundMock, setRefundMock] = useState<PaymentMock>("success");
+  const [ticketsToCancel, setTicketsToCancel] = useState<number[]>([]);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   async function loadSeatMap(eventId: number) {
     setOpening(true);
@@ -234,12 +257,38 @@ export default function App() {
     try {
       await checkout(checkedOutOrderId, heldSeatIds, mockResult);
       setHeldSeatIds([]);
+      setTicketsToCancel([]);
+      setCancelError(null);
       setOrder(await fetchOrder(checkedOutOrderId));
     } catch {
       setCheckoutError("Checkout did not complete.");
     } finally {
       await loadSeatMap(eventId);
       setCheckingOut(false);
+    }
+  }
+
+  function toggleTicket(seatId: number) {
+    setTicketsToCancel((current) =>
+      current.includes(seatId) ? current.filter((id) => id !== seatId) : [...current, seatId],
+    );
+  }
+
+  async function submitCancel(seatIds: number[]) {
+    if (seatMap == null || order == null || seatIds.length === 0) {
+      return;
+    }
+    const eventId = seatMap.id;
+    setCancelling(true);
+    setCancelError(null);
+    try {
+      setOrder(await cancelTickets(order.id, seatIds, refundMock));
+      setTicketsToCancel([]);
+    } catch {
+      setCancelError("Those tickets could not be cancelled.");
+    } finally {
+      await loadSeatMap(eventId);
+      setCancelling(false);
     }
   }
 
@@ -379,6 +428,62 @@ export default function App() {
               <p>
                 Tickets: {order.tickets.length === 0 ? "None" : order.tickets.map((ticket) => ticket.label).join(", ")}
               </p>
+              {order.refunds.length === 0 ? (
+                <p>Refund: None</p>
+              ) : (
+                order.refunds.map((refund, index) => (
+                  <p key={`${refund.status}-${refund.amountCents}-${index}`}>
+                    Refund: {refundLabel(refund.status)} · {formatCents(refund.amountCents)}
+                  </p>
+                ))
+              )}
+              {order.tickets.length > 0 ? (
+                <div className="hold-bar">
+                  <ul className="ticket-choices">
+                    {order.tickets.map((ticket) => (
+                      <li key={ticket.seatId}>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={ticketsToCancel.includes(ticket.seatId)}
+                            onChange={() => toggleTicket(ticket.seatId)}
+                            disabled={cancelling}
+                          />
+                          {ticket.label}
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                  <label>
+                    Refund result
+                    <select
+                      value={refundMock}
+                      onChange={(event) => setRefundMock(event.target.value as PaymentMock)}
+                      disabled={cancelling}
+                    >
+                      <option value="success">Success</option>
+                      <option value="decline">Decline</option>
+                      <option value="timeout">Timeout</option>
+                      <option value="unknown">Unknown</option>
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void submitCancel(ticketsToCancel)}
+                    disabled={cancelling || ticketsToCancel.length === 0}
+                  >
+                    {cancelling ? "Cancelling…" : "Cancel selected"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void submitCancel(order.tickets.map((ticket) => ticket.seatId))}
+                    disabled={cancelling}
+                  >
+                    {cancelling ? "Cancelling…" : "Cancel all"}
+                  </button>
+                  {cancelError != null ? <p className="error">{cancelError}</p> : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
           {seatMap.sections.map((section) => (

@@ -151,6 +151,21 @@ button:disabled {
   margin: 0;
 }
 
+.ticket-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ticket-choices label {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
 .hold-bar select,
 .hold-bar input {
   padding: 0.55rem 0.65rem;
