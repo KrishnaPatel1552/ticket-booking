@@ -341,12 +341,10 @@ export default function App() {
 
   if (signedIn == null) {
     return (
-      <main className="page">
-        <header className="mast">
-          <p className="eyebrow">Harbor Hall</p>
+      <main className="sign-in-screen">
+        <form className="sign-in-card" onSubmit={submitSignIn}>
+          <p className="sign-in-venue">Harbor Hall</p>
           <h1>Sign in</h1>
-        </header>
-        <form className="panel" onSubmit={submitSignIn}>
           <label>
             Email
             <input
@@ -367,10 +365,10 @@ export default function App() {
               required
             />
           </label>
-          {signInError != null ? <p className="error">{signInError}</p> : null}
           <button type="submit" disabled={signingIn}>
             {signingIn ? "Signing in…" : "Sign in"}
           </button>
+          {signInError != null ? <p className="error">{signInError}</p> : null}
         </form>
       </main>
     );
