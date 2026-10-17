@@ -10,6 +10,7 @@ import {
   fetchSeatMap,
   fetchWaitlist,
   holdSeats,
+  releaseOrderHolds,
   searchEvents,
   signIn,
   type EventSeatMap,
@@ -24,6 +25,7 @@ vi.mock("./api", () => ({
   fetchWaitlist: vi.fn(),
   joinWaitlist: vi.fn(),
   holdSeats: vi.fn(),
+  releaseOrderHolds: vi.fn(),
   attachPromoCode: vi.fn(),
   checkout: vi.fn(),
   fetchOrder: vi.fn(),
@@ -309,3 +311,59 @@ test("a price that does not load says so and keeps the seats and the hold end", 
   expect(within(prices).queryByText(/Service fee/)).toBeNull();
   expect(within(prices).queryByText(/^Total/)).toBeNull();
 });
+
+test("releasing a hold from the hold screen returns to the seat map with the seat free", async () => {
+  const user = await holdSeatsOnMap(harborMap, ["A1"]);
+  vi.mocked(releaseOrderHolds).mockResolvedValueOnce({
+    id: 9,
+    eventId: 7,
+    promoCode: null,
+    payment: null,
+    tickets: [],
+    refunds: [],
+    holds: [],
+  });
+  vi.mocked(fetchSeatMap).mockResolvedValueOnce(harborMap);
+
+  await user.click(screen.getByRole("button", { name: "Release hold" }));
+
+  expect(vi.mocked(releaseOrderHolds)).toHaveBeenCalledWith(9);
+  expect(await screen.findByRole("button", { name: "A1 free" })).toBeTruthy();
+  expect(document.querySelector("section.hold-screen")).toBeNull();
+});
+
+test("reopening the seat map with an active hold offers Check out, Release hold, and Search events", async () => {
+  const user = await holdSeatsOnMap(harborMap, ["A1"]);
+  vi.mocked(fetchSeatMap).mockResolvedValueOnce({
+    ...harborMap,
+    activeHoldOrderId: 9,
+    sections: [
+      {
+        name: "Orchestra",
+        seats: [
+          seat({ id: 1, label: "A1", state: "held", yours: true }),
+          seat({ id: 2, label: "A2", state: "free" }),
+        ],
+      },
+    ],
+  });
+  vi.mocked(fetchOrder).mockResolvedValueOnce({
+    id: 9,
+    eventId: 7,
+    promoCode: null,
+    payment: null,
+    tickets: [],
+    refunds: [],
+    holds: [{ seatId: 1, label: "A1", heldUntil: "2026-06-12T23:10:00.000Z" }],
+  });
+
+  await user.click(screen.getByRole("button", { name: "Change seats" }));
+
+  const banner = await screen.findByRole("region", { name: "Active hold" });
+  expect(within(banner).getByRole("button", { name: "Check out" })).toBeTruthy();
+  expect(within(banner).getByRole("button", { name: "Release hold" })).toBeTruthy();
+
+  await user.click(screen.getByRole("button", { name: "Search events" }));
+  expect(await screen.findByLabelText("Search events by name")).toBeTruthy();
+});
+

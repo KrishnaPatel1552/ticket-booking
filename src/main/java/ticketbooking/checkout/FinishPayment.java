@@ -1,5 +1,6 @@
 package ticketbooking.checkout;
 
+import ticketbooking.clock.AppClock;
 import ticketbooking.hold.EventSeat;
 import ticketbooking.hold.EventSeatKind;
 import ticketbooking.hold.EventSeatRepository;
@@ -7,6 +8,7 @@ import ticketbooking.payment.Payment;
 import ticketbooking.payment.PaymentRepository;
 import ticketbooking.payment.PaymentStatus;
 import ticketbooking.waitlist.OfferWaitlist;
+import ticketbooking.waitlist.WaitlistEntryRepository;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -21,16 +23,22 @@ public class FinishPayment {
     private final PaymentRepository payments;
     private final EventSeatRepository eventSeats;
     private final OfferWaitlist offerWaitlist;
+    private final WaitlistEntryRepository waitlistEntries;
+    private final AppClock clock;
     private final RecordEventCancellationRefund recordEventCancellationRefund;
 
     public FinishPayment(
             PaymentRepository payments,
             EventSeatRepository eventSeats,
             OfferWaitlist offerWaitlist,
+            WaitlistEntryRepository waitlistEntries,
+            AppClock clock,
             RecordEventCancellationRefund recordEventCancellationRefund) {
         this.payments = payments;
         this.eventSeats = eventSeats;
         this.offerWaitlist = offerWaitlist;
+        this.waitlistEntries = waitlistEntries;
+        this.clock = clock;
         this.recordEventCancellationRefund = recordEventCancellationRefund;
     }
 
@@ -80,6 +88,7 @@ public class FinishPayment {
             claim.becomeTicket();
             written.add(claim);
         }
+        endWaitlistIfFulfilled(payment, written);
         refundIfEventCancelled(payment, written);
     }
 
@@ -104,7 +113,19 @@ public class FinishPayment {
             }
             hold.becomeTicket();
         }
+        endWaitlistIfFulfilled(payment, holds);
         refundIfEventCancelled(payment, holds);
+    }
+
+    private void endWaitlistIfFulfilled(Payment payment, List<EventSeat> tickets) {
+        boolean fromWaitlist = tickets.stream().anyMatch(EventSeat::isFromWaitlist);
+        if (!fromWaitlist) {
+            return;
+        }
+        long eventId = payment.getOrder().getEvent().getId();
+        long customerId = payment.getOrder().getCustomer().getId();
+        waitlistEntries.findByEventIdAndCustomerIdAndEndedAtIsNull(eventId, customerId)
+                .ifPresent(entry -> entry.end(clock.now()));
     }
 
     private void refundIfEventCancelled(Payment payment, List<EventSeat> tickets) {
@@ -117,11 +138,15 @@ public class FinishPayment {
     }
 
     private void decline(Payment payment, List<Long> seatIds) {
-        List<EventSeat> holds = eventSeats.lockActiveForSeats(payment.getOrder().getId(), seatIds);
+        List<EventSeat> holds = eventSeats.lockActiveOnOrder(payment.getOrder().getId());
         payment.mark(PaymentStatus.DECLINED);
+        List<EventSeat> released = new ArrayList<>();
         for (EventSeat hold : holds) {
-            hold.release();
+            if (hold.getKind() == EventSeatKind.HOLD) {
+                hold.release();
+                released.add(hold);
+            }
         }
-        offerWaitlist.offer(payment.getOrder().getEvent().getId(), holds);
+        offerWaitlist.offer(payment.getOrder().getEvent().getId(), released);
     }
 }

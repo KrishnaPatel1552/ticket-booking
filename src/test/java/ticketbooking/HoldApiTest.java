@@ -318,6 +318,63 @@ class HoldApiTest {
         assertThat(seatState(after, "A2")).isEqualTo("held");
     }
 
+    @Test
+    void releasingASeatFromAHoldFreesOnlyThatSeatAndReleasingTheOrderFreesAllHeldSeats() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        long a2 = seatId(opened, "A2");
+        long a3 = seatId(opened, "A3");
+
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(a1, a2, a3)));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+
+        assertThat(grace.delete("/api/orders/" + orderId + "/holds/" + a1).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+
+        ResponseEntity<JsonNode> releasedOne = ada.delete("/api/orders/" + orderId + "/holds/" + a1);
+        assertThat(releasedOne.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(releasedOne.getBody().get("holds")).hasSize(2);
+        JsonNode mapAfterOne = ada.get("/api/events/" + eventId).getBody();
+        assertThat(seatState(mapAfterOne, "A1")).isEqualTo("free");
+        assertThat(seatState(mapAfterOne, "A2")).isEqualTo("held");
+        assertThat(seatState(mapAfterOne, "A3")).isEqualTo("held");
+        assertThat(mapAfterOne.get("activeHoldOrderId").asLong()).isEqualTo(orderId);
+
+        ResponseEntity<JsonNode> releasedAll = ada.delete("/api/orders/" + orderId + "/holds");
+        assertThat(releasedAll.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(releasedAll.getBody().get("holds")).isEmpty();
+        JsonNode mapAfterAll = ada.get("/api/events/" + eventId).getBody();
+        assertThat(seatState(mapAfterAll, "A2")).isEqualTo("free");
+        assertThat(seatState(mapAfterAll, "A3")).isEqualTo("free");
+        assertThat(mapAfterAll.get("activeHoldOrderId").isNull()).isTrue();
+    }
+
+    @Test
+    void holdingAfterTenMinutesWithoutOpeningTheSeatMapFreesTheExpiredHold() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2033-01-01T10:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        assertThat(ada.post("/api/events/" + eventId + "/holds", java.util.Map.of("seatIds", List.of(a1)))
+                .getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2033-01-01T10:10:01Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        ResponseEntity<JsonNode> graceHold = grace.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(a1)));
+        assertThat(graceHold.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
     private void insertPayment(long orderId) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(
@@ -509,6 +566,14 @@ class HoldApiTest {
                 headers.set(HttpHeaders.COOKIE, cookieHeader);
             }
             return rest.exchange(path, HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+        }
+
+        private ResponseEntity<JsonNode> delete(String path) {
+            HttpHeaders headers = new HttpHeaders();
+            if (!cookieHeader.isEmpty()) {
+                headers.set(HttpHeaders.COOKIE, cookieHeader);
+            }
+            return rest.exchange(path, HttpMethod.DELETE, new HttpEntity<>(headers), JsonNode.class);
         }
 
         private void remember(ResponseEntity<?> response) {

@@ -70,6 +70,8 @@ public class OrderQuery {
                 .map(claim -> new HoldView(claim.getSeat().getId(), claim.getSeat().getLabel(), claim.getHeldUntil()))
                 .toList();
         String promoCode = order.getPromoCode() == null ? null : order.getPromoCode().getCode();
+        Integer promoAmountCents = order.getPromoCode() == null ? null : order.getPromoCode().getAmountCents();
+        Boolean promoExclusive = order.getPromoCode() == null ? null : order.getPromoCode().isExclusive();
         return new OrderView(
                 order.getId(),
                 order.getEvent().getId(),
@@ -77,7 +79,9 @@ public class OrderQuery {
                 paymentView,
                 tickets,
                 refundViews,
-                holds);
+                holds,
+                promoAmountCents,
+                promoExclusive);
     }
 
     private static String statusWire(PaymentStatus status) {

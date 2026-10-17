@@ -10,6 +10,7 @@ import {
   fetchSeatMap,
   fetchWaitlist,
   holdSeats,
+  reconcilePayment,
   searchEvents,
   signIn,
   type EventSeatMap,
@@ -27,6 +28,7 @@ vi.mock("./api", () => ({
   holdSeats: vi.fn(),
   attachPromoCode: vi.fn(),
   checkout: vi.fn(),
+  reconcilePayment: vi.fn(),
   fetchOrder: vi.fn(),
   fetchSaleTerms: vi.fn(),
   cancelTickets: vi.fn(),
@@ -508,3 +510,42 @@ test("a pending payment stays on checkout and shows pending", async () => {
   expect(document.querySelector("section.checkout-screen")).not.toBeNull();
   expect(screen.queryByRole("region", { name: "Tickets" })).toBeNull();
 });
+
+test("an unknown payment can be reconciled to open the tickets screen", async () => {
+  const user = await holdSeatsOnMap();
+  await user.click(screen.getByRole("button", { name: "Check out" }));
+  vi.mocked(fetchOrder).mockResolvedValueOnce({
+    id: 9,
+    eventId: 7,
+    promoCode: null,
+    payment: { status: "unknown", amountCents: 10250 },
+    tickets: [],
+    refunds: [],
+    holds: [{ seatId: 1, label: "A1", heldUntil: "2026-06-12T23:10:00.000Z" }],
+  });
+
+  await user.click(screen.getByRole("radio", { name: "unknown" }));
+  await user.click(screen.getByRole("button", { name: "Check out" }));
+  expect((await screen.findByRole("status")).textContent).toBe("unknown");
+
+  vi.mocked(reconcilePayment).mockResolvedValueOnce({
+    id: 9,
+    eventId: 7,
+    promoCode: null,
+    payment: { status: "succeeded", amountCents: 10250 },
+    tickets: [
+      { seatId: 1, label: "A1" },
+      { seatId: 2, label: "A2" },
+    ],
+    refunds: [],
+    holds: [],
+  });
+  await user.click(screen.getByRole("radio", { name: "success" }));
+  await user.click(screen.getByRole("button", { name: "Reconcile payment" }));
+
+  const tickets = await screen.findByRole("region", { name: "Tickets" });
+  expect(within(tickets).getByText("A1")).toBeTruthy();
+  expect(within(tickets).getByText("A2")).toBeTruthy();
+  expect(vi.mocked(reconcilePayment)).toHaveBeenCalledWith(9, "success");
+});
+

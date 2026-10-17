@@ -19,7 +19,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -74,19 +76,35 @@ public class OfferWaitlist {
             return;
         }
         entityManager.flush();
+        List<WaitlistEntry> line = entries.findByEventIdAndEndedAtIsNullOrderByIdAsc(eventId);
+        Set<Long> alreadyOfferedBeforeBatch = new HashSet<>();
+        for (WaitlistEntry entry : line) {
+            long customerId = entry.getCustomer().getId();
+            if (!eventSeats.findActiveWaitlistHolds(customerId, eventId).isEmpty()) {
+                alreadyOfferedBeforeBatch.add(customerId);
+            }
+        }
         List<EventSeat> freed = new ArrayList<>(released);
         freed.sort(Comparator.comparing(claim -> claim.getSeat().getId()));
         for (EventSeat claim : freed) {
-            offerSeat(eventId, claim.getSeat().getId(), lapsedCustomer(claim));
+            offerSeat(eventId, claim.getSeat().getId(), lapsedCustomer(claim), alreadyOfferedBeforeBatch);
         }
     }
 
-    private void offerSeat(long eventId, long seatId, Long skipCustomerId) {
+    private void offerSeat(
+            long eventId,
+            long seatId,
+            Long skipCustomerId,
+            Set<Long> alreadyOfferedBeforeBatch) {
         if (!free(eventId, seatId)) {
             return;
         }
         for (WaitlistEntry entry : entries.findByEventIdAndEndedAtIsNullOrderByIdAsc(eventId)) {
-            if (skipCustomerId != null && skipCustomerId.equals(entry.getCustomer().getId())) {
+            long customerId = entry.getCustomer().getId();
+            if (skipCustomerId != null && skipCustomerId.equals(customerId)) {
+                continue;
+            }
+            if (alreadyOfferedBeforeBatch.contains(customerId)) {
                 continue;
             }
             if (!room(entry)) {
@@ -141,6 +159,9 @@ public class OfferWaitlist {
             order.closeForHolds();
             entityManager.flush();
             return null;
+        }
+        if (order != null && eventSeats.countActiveOnOrder(order.getId()) == 0) {
+            order.attachPromoCode(null);
         }
         return order;
     }

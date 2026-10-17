@@ -9,5 +9,7 @@ public record OrderView(
         PaymentView payment,
         List<TicketView> tickets,
         List<RefundView> refunds,
-        List<HoldView> holds) {
+        List<HoldView> holds,
+        Integer promoAmountCents,
+        Boolean promoExclusive) {
 }

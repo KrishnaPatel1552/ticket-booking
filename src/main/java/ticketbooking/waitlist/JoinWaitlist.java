@@ -4,6 +4,7 @@ import ticketbooking.block.SeatBlockRepository;
 import ticketbooking.event.Event;
 import ticketbooking.event.EventRepository;
 import ticketbooking.hold.EventSeatRepository;
+import ticketbooking.hold.ExpiredHoldRelease;
 import ticketbooking.signin.Account;
 import ticketbooking.signin.AccountRepository;
 import ticketbooking.venue.Seat;
@@ -27,6 +28,7 @@ public class JoinWaitlist {
     private final EventSeatRepository eventSeats;
     private final SeatBlockRepository seatBlocks;
     private final WaitlistEntryRepository entries;
+    private final ExpiredHoldRelease expiredHoldRelease;
     private final EntityManager entityManager;
 
     public JoinWaitlist(
@@ -37,6 +39,7 @@ public class JoinWaitlist {
             EventSeatRepository eventSeats,
             SeatBlockRepository seatBlocks,
             WaitlistEntryRepository entries,
+            ExpiredHoldRelease expiredHoldRelease,
             EntityManager entityManager) {
         this.accounts = accounts;
         this.events = events;
@@ -45,6 +48,7 @@ public class JoinWaitlist {
         this.eventSeats = eventSeats;
         this.seatBlocks = seatBlocks;
         this.entries = entries;
+        this.expiredHoldRelease = expiredHoldRelease;
         this.entityManager = entityManager;
     }
 
@@ -54,7 +58,8 @@ public class JoinWaitlist {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED));
         Event event = events.findById(eventId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-        if (entries.findByEventIdAndCustomerId(event.getId(), customer.getId()).isPresent()) {
+        expiredHoldRelease.release(event.getId());
+        if (entries.findByEventIdAndCustomerIdAndEndedAtIsNull(event.getId(), customer.getId()).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
         if (event.isCancelled() || anySeatFree(event)) {
@@ -69,22 +74,22 @@ public class JoinWaitlist {
         }
     }
 
-    @Transactional(isolation = Isolation.READ_COMMITTED, readOnly = true)
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public WaitlistView read(long eventId, String email) {
         Account customer = accounts.findByEmail(email)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED));
         Event event = events.findById(eventId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-        WaitlistEntry entry = entries.findByEventIdAndCustomerId(event.getId(), customer.getId())
+        expiredHoldRelease.release(event.getId());
+        WaitlistEntry entry = entries.findByEventIdAndCustomerIdAndEndedAtIsNull(event.getId(), customer.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-        if (entry.getEndedAt() != null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        }
         return view(entry);
     }
 
     private WaitlistView view(WaitlistEntry entry) {
-        long place = entries.countByEventIdAndIdLessThanEqual(entry.getEvent().getId(), entry.getId());
+        long place = entries.countByEventIdAndEndedAtIsNullAndIdLessThanEqual(
+                entry.getEvent().getId(),
+                entry.getId());
         Long orderId = eventSeats.findActiveWaitlistHolds(entry.getCustomer().getId(), entry.getEvent().getId())
                 .stream()
                 .map(claim -> claim.getOrder().getId())

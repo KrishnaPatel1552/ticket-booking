@@ -343,6 +343,65 @@ class WaitlistApiTest {
         assertThat(holdLabeled(offer, "A1").get("heldUntil").asText()).isEqualTo("2026-10-16T21:15:00Z");
     }
 
+    @Test
+    void manuallyReleasingAHoldOffersThatSeatToTheWaitlistAndBuyingItAdvancesTheLineAndAllowsRejoining() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T22:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        for (int number = 2; number <= 12; number++) {
+            assertThat(admin.post(
+                    "/api/admin/events/" + eventId + "/seats/" + seatId(opened, "A" + number) + "/block",
+                    java.util.Map.of("reason", "House")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        }
+        for (int number = 1; number <= 7; number++) {
+            assertThat(admin.post(
+                    "/api/admin/events/" + eventId + "/seats/" + seatId(opened, "B" + number) + "/block",
+                    java.util.Map.of("reason", "House")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        }
+        long a1 = seatId(opened, "A1");
+        long b8 = seatId(opened, "B8");
+        long graceHoldOrder = hold(grace, eventId, opened, List.of("A1", "B8"));
+
+        assertThat(ada.post("/api/events/" + eventId + "/waitlist", java.util.Map.of()).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(grace.post("/api/events/" + eventId + "/waitlist", java.util.Map.of()).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        assertThat(grace.delete("/api/orders/" + graceHoldOrder + "/holds/" + a1).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        JsonNode adaOffer = ada.get("/api/events/" + eventId + "/waitlist").getBody();
+        assertThat(adaOffer.get("place").asInt()).isEqualTo(1);
+        long adaOfferOrderId = adaOffer.get("orderId").asLong();
+        assertThat(holdLabeled(ada.get("/api/orders/" + adaOfferOrderId).getBody(), "A1").get("heldUntil").asText())
+                .isEqualTo("2026-10-16T22:15:00Z");
+
+        assertThat(grace.delete("/api/orders/" + graceHoldOrder + "/holds/" + b8).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode graceOffer = grace.get("/api/events/" + eventId + "/waitlist").getBody();
+        assertThat(graceOffer.get("place").asInt()).isEqualTo(2);
+        assertThat(graceOffer.get("orderId").isNumber()).isTrue();
+        assertThat(holdLabeled(grace.get("/api/orders/" + graceOffer.get("orderId").asLong()).getBody(), "B8")
+                .get("heldUntil").asText()).isEqualTo("2026-10-16T22:15:00Z");
+
+        assertThat(ada.post("/api/orders/" + adaOfferOrderId + "/checkout", java.util.Map.of(
+                "seatIds", List.of(a1),
+                "mock", "success")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        assertThat(ada.get("/api/events/" + eventId + "/waitlist").getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        JsonNode graceAdvanced = grace.get("/api/events/" + eventId + "/waitlist").getBody();
+        assertThat(graceAdvanced.get("place").asInt()).isEqualTo(1);
+
+        ResponseEntity<JsonNode> rejoined = ada.post("/api/events/" + eventId + "/waitlist", java.util.Map.of());
+        assertThat(rejoined.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(rejoined.getBody().get("place").asInt()).isEqualTo(2);
+    }
+
     private static JsonNode holdLabeled(JsonNode order, String label) {
         for (JsonNode hold : order.path("holds")) {
             if (label.equals(hold.path("label").asText())) {
@@ -446,6 +505,14 @@ class WaitlistApiTest {
                 headers.set(HttpHeaders.COOKIE, cookieHeader);
             }
             return rest.exchange(path, HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+        }
+
+        private ResponseEntity<JsonNode> delete(String path) {
+            HttpHeaders headers = new HttpHeaders();
+            if (!cookieHeader.isEmpty()) {
+                headers.set(HttpHeaders.COOKIE, cookieHeader);
+            }
+            return rest.exchange(path, HttpMethod.DELETE, new HttpEntity<>(headers), JsonNode.class);
         }
 
         private void remember(ResponseEntity<?> response) {

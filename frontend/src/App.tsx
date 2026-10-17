@@ -1,27 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import {
-  attachPromoCode,
-  cancelTickets,
-  checkout,
-  fetchOrder,
-  fetchSaleTerms,
-  fetchSeatMap,
-  fetchWaitlist,
-  holdSeats,
-  joinWaitlist,
-  searchEvents,
-  signIn,
-  type EventSeatMap,
-  type EventSummary,
-  type HoldView,
-  type OrderView,
-  type PaymentMock,
-  type PaymentStatus,
-  type SaleTermsView,
-  type SeatState,
-  type SeatView,
-  type SignedIn,
-  type WaitlistPlace,
+import * as api from "./api";
+import type {
+  EventSeatMap,
+  EventSummary,
+  HoldView,
+  OrderView,
+  PaymentMock,
+  PaymentStatus,
+  SaleTermsView,
+  SeatState,
+  SeatView,
+  SignedIn,
+  WaitlistPlace,
 } from "./api";
 
 function readClock(): number {
@@ -58,29 +48,40 @@ function orderPriceLines(
   now: number,
   terms: SaleTermsView | null,
   promoCode: string | null,
+  promoAmountCents: number | null,
+  promoExclusive: boolean | null,
 ): string[] {
   const held = seatIds
     .map((id) => seatById(map, id))
     .filter((seat): seat is SeatView => seat != null);
+  const exclusive = promoCode != null && promoCode !== "" && promoExclusive === true;
   const priceTierCents = held.reduce((sum, seat) => sum + seat.priceCents, 0);
-  const ticketTotalCents = held.reduce((sum, seat) => sum + currentPriceCents(map, seat, now), 0);
+  const ticketTotalCents = exclusive
+    ? priceTierCents
+    : held.reduce((sum, seat) => sum + currentPriceCents(map, seat, now), 0);
   const lines = [`Price tier ${formatCents(priceTierCents)}`];
-  if (earlyBirdWindowOpen(map, now)) {
+  if (!exclusive && earlyBirdWindowOpen(map, now)) {
     const earlyBirdCents = held.reduce((sum, seat) => sum + currentPriceCents(map, seat, now), 0);
     lines.push(`Early-bird ${formatCents(earlyBirdCents)}`);
   }
   lines.push(`Ticket total ${formatCents(ticketTotalCents)}`);
   let groupRateCents = 0;
-  if (terms != null && held.length >= terms.groupRateThreshold) {
+  if (!exclusive && terms != null && held.length >= terms.groupRateThreshold) {
     groupRateCents = Math.min(terms.groupRateAmountCents, ticketTotalCents);
     lines.push(`Group rate ${formatCents(groupRateCents)}`);
   }
+  let promoDiscountCents = 0;
   if (promoCode != null && promoCode !== "") {
-    lines.push(promoCode);
+    if (promoAmountCents != null) {
+      promoDiscountCents = Math.min(promoAmountCents, Math.max(ticketTotalCents - groupRateCents, 0));
+      lines.push(`${promoCode} -${formatCents(promoDiscountCents)}`);
+    } else {
+      lines.push(promoCode);
+    }
   }
   if (terms != null) {
     lines.push(`Service fee ${formatCents(terms.serviceFeeCents)}`);
-    lines.push(`Total ${formatCents(ticketTotalCents - groupRateCents + terms.serviceFeeCents)}`);
+    lines.push(`Total ${formatCents(ticketTotalCents - groupRateCents - promoDiscountCents + terms.serviceFeeCents)}`);
   }
   return lines;
 }
@@ -217,6 +218,13 @@ function seatInDirection(seats: SeatView[], seatId: number, key: string): SeatVi
   return null;
 }
 
+type ActiveHoldState = {
+  orderId: number;
+  labels: string[];
+  seatIds: number[];
+  heldUntil: string;
+};
+
 export default function App() {
   const [signedIn, setSignedIn] = useState<SignedIn | null>(null);
   const [email, setEmail] = useState("");
@@ -233,17 +241,16 @@ export default function App() {
   const [opening, setOpening] = useState(false);
   const [selectedSeatIds, setSelectedSeatIds] = useState<number[]>([]);
   const [holding, setHolding] = useState(false);
+  const [releasing, setReleasing] = useState(false);
   const [holdError, setHoldError] = useState<string | null>(null);
-  const [confirmedHold, setConfirmedHold] = useState<{
-    orderId: number;
-    labels: string[];
-    seatIds: number[];
-    heldUntil: string;
-  } | null>(null);
+  const [confirmedHold, setConfirmedHold] = useState<ActiveHoldState | null>(null);
+  const [activeHold, setActiveHold] = useState<ActiveHoldState | null>(null);
   const [saleTerms, setSaleTerms] = useState<SaleTermsView | null>(null);
   const [priceUnavailable, setPriceUnavailable] = useState(false);
   const [earlierOrder, setEarlierOrder] = useState<OrderView | null>(null);
   const [promoCode, setPromoCode] = useState<string | null>(null);
+  const [promoAmountCents, setPromoAmountCents] = useState<number | null>(null);
+  const [promoExclusive, setPromoExclusive] = useState<boolean | null>(null);
   const [promoDraft, setPromoDraft] = useState("");
   const [promoError, setPromoError] = useState<string | null>(null);
   const [attaching, setAttaching] = useState(false);
@@ -280,11 +287,12 @@ export default function App() {
     setOpening(true);
     setMapError(null);
     try {
-      const map = await fetchSeatMap(eventId);
+      const map = await api.fetchSeatMap(eventId);
       setSeatMap(map);
       setPricedAt(readClock());
       setSelectedSeatIds((current) => current.filter((id) => seatById(map, id)?.state === "free"));
       await loadWaitlist(eventId);
+      await syncCustomerEventOrders(map);
     } catch {
       setSeatMap(null);
       setMapError("The seat map did not load.");
@@ -293,15 +301,51 @@ export default function App() {
     }
   }
 
+  async function syncCustomerEventOrders(map: EventSeatMap) {
+    if (map.activeHoldOrderId != null) {
+      try {
+        const order = await api.fetchOrder(map.activeHoldOrderId);
+        if (order != null && order.holds.length > 0) {
+          setActiveHold({
+            orderId: order.id,
+            labels: order.holds.map((hold) => hold.label),
+            seatIds: order.holds.map((hold) => hold.seatId),
+            heldUntil: order.holds[0].heldUntil,
+          });
+          setPromoCode(order.promoCode);
+          setPromoAmountCents(order.promoAmountCents ?? null);
+          setPromoExclusive(order.promoExclusive ?? null);
+        } else {
+          setActiveHold(null);
+        }
+      } catch {
+        setActiveHold(null);
+      }
+    } else {
+      setActiveHold(null);
+    }
+    if (map.paidOrderIds != null && map.paidOrderIds.length > 0) {
+      const latestPaidId = map.paidOrderIds[map.paidOrderIds.length - 1];
+      try {
+        const paid = await api.fetchOrder(latestPaidId);
+        if (paid != null && paid.tickets.length > 0) {
+          setEarlierOrder(paid);
+        }
+      } catch {
+        // Keep existing earlierOrder state if lookup fails
+      }
+    }
+  }
+
   async function loadWaitlist(eventId: number) {
     try {
-      const line = await fetchWaitlist(eventId);
+      const line = await api.fetchWaitlist(eventId);
       setWaitlist(line);
       if (line?.orderId == null) {
         setOfferedHolds([]);
         return;
       }
-      const offered = await fetchOrder(line.orderId);
+      const offered = await api.fetchOrder(line.orderId);
       setOfferedHolds(offered.holds);
     } catch {
       setJoinError("The waitlist did not load.");
@@ -315,7 +359,7 @@ export default function App() {
     setJoining(true);
     setJoinError(null);
     try {
-      setWaitlist(await joinWaitlist(seatMap.id));
+      setWaitlist(await api.joinWaitlist(seatMap.id));
     } catch {
       setJoinError("The waitlist did not accept that request.");
     } finally {
@@ -328,7 +372,7 @@ export default function App() {
     setSigningIn(true);
     setSignInError(null);
     try {
-      const session = await signIn(email, password);
+      const session = await api.signIn(email, password);
       setSignedIn(session);
       setPassword("");
     } catch {
@@ -350,7 +394,7 @@ export default function App() {
     setSearching(true);
     setSearchError(null);
     try {
-      const found = await searchEvents(name);
+      const found = await api.searchEvents(name);
       setEvents(found);
       if (found.length === 0) {
         setSearchError("No events match that name.");
@@ -372,10 +416,13 @@ export default function App() {
     setSelectedSeatIds([]);
     setHoldError(null);
     setConfirmedHold(null);
+    setActiveHold(null);
     setSaleTerms(null);
     setPriceUnavailable(false);
     setEarlierOrder(null);
     setPromoCode(null);
+    setPromoAmountCents(null);
+    setPromoExclusive(null);
     setPromoDraft("");
     setPromoError(null);
     setCheckoutOpen(false);
@@ -393,6 +440,26 @@ export default function App() {
     setOfferedHolds([]);
     setJoinError(null);
     await loadSeatMap(eventId);
+  }
+
+  function backToSearch() {
+    setOpenEventId(null);
+    setSeatMap(null);
+    setMapError(null);
+    setSelectedSeatIds([]);
+    setHoldError(null);
+    setConfirmedHold(null);
+    setActiveHold(null);
+    setCheckoutOpen(false);
+    setPaymentMock(null);
+    setPaymentStatus(null);
+    setPaidOrder(null);
+    setTicketIdsToCancel([]);
+    setRefundMock(null);
+    setRefundScript(null);
+    setRefundAmountCents(null);
+    setCancelError(null);
+    setCheckoutError(null);
   }
 
   function moveSeatFocus(sectionName: string, seatId: number) {
@@ -438,14 +505,31 @@ export default function App() {
     const orderId = waitlist.orderId;
     setSaleTerms(await loadSaleTerms());
     setPromoCode(null);
+    setPromoAmountCents(null);
+    setPromoExclusive(null);
     setPromoDraft("");
     setPromoError(null);
-    setConfirmedHold({
+    const holdState: ActiveHoldState = {
       orderId,
       labels: offeredHolds.map((hold) => hold.label),
       seatIds: offeredHolds.map((hold) => hold.seatId),
       heldUntil: offeredHolds[0].heldUntil,
-    });
+    };
+    setConfirmedHold(holdState);
+    setActiveHold(holdState);
+  }
+
+  async function resumeHoldCheckout() {
+    if (activeHold == null) {
+      return;
+    }
+    if (saleTerms == null && !priceUnavailable) {
+      setSaleTerms(await loadSaleTerms());
+    }
+    setConfirmedHold(activeHold);
+    setPaymentStatus(null);
+    setCheckoutError(null);
+    setCheckoutOpen(true);
   }
 
   async function submitHold() {
@@ -454,23 +538,28 @@ export default function App() {
     }
     const eventId = seatMap.id;
     const seatsToHold = selectedSeatIds;
-    const labels = seatsToHold
-      .map((id) => seatById(seatMap, id)?.label)
-      .filter((label): label is string => label != null);
     setHolding(true);
     setHoldError(null);
     try {
-      const held = await holdSeats(eventId, seatsToHold);
+      const held = await api.holdSeats(eventId, seatsToHold);
+      const effectiveSeatIds = held.seatIds.length > 0 ? held.seatIds : seatsToHold;
+      const labels = effectiveSeatIds
+        .map((id) => seatById(seatMap, id)?.label)
+        .filter((label): label is string => label != null);
       setSaleTerms(await loadSaleTerms());
       setPromoCode(null);
+      setPromoAmountCents(null);
+      setPromoExclusive(null);
       setPromoDraft("");
       setPromoError(null);
-      setConfirmedHold({
+      const nextHold: ActiveHoldState = {
         orderId: held.orderId,
         labels,
-        seatIds: seatsToHold,
+        seatIds: effectiveSeatIds,
         heldUntil: held.heldUntil,
-      });
+      };
+      setConfirmedHold(nextHold);
+      setActiveHold(nextHold);
       setSelectedSeatIds([]);
     } catch {
       setHoldError("Those seats could not be held.");
@@ -480,9 +569,41 @@ export default function App() {
     }
   }
 
+  async function submitReleaseHold() {
+    const target = confirmedHold ?? activeHold;
+    if (target == null || releasing) {
+      return;
+    }
+    const eventId = seatMap?.id;
+    setReleasing(true);
+    setHoldError(null);
+    setPromoError(null);
+    try {
+      if (typeof api.releaseOrderHolds === "function") {
+        await api.releaseOrderHolds(target.orderId);
+      }
+      setConfirmedHold(null);
+      setActiveHold(null);
+      setPromoCode(null);
+      setPromoAmountCents(null);
+      setPromoExclusive(null);
+      setPromoDraft("");
+      setCheckoutOpen(false);
+      setPaymentMock(null);
+      setPaymentStatus(null);
+      if (eventId != null) {
+        await loadSeatMap(eventId);
+      }
+    } catch {
+      setHoldError("Those seats could not be released.");
+    } finally {
+      setReleasing(false);
+    }
+  }
+
   async function loadSaleTerms(): Promise<SaleTermsView | null> {
     try {
-      const terms = await fetchSaleTerms();
+      const terms = await api.fetchSaleTerms();
       setPriceUnavailable(false);
       return terms;
     } catch {
@@ -522,6 +643,8 @@ export default function App() {
     const eventId = seatMap?.id;
     setConfirmedHold(null);
     setPromoCode(null);
+    setPromoAmountCents(null);
+    setPromoExclusive(null);
     setPromoDraft("");
     setPromoError(null);
     setSelectedSeatIds([]);
@@ -550,13 +673,14 @@ export default function App() {
     const eventId = seatMap?.id;
     setCheckoutError(null);
     try {
-      await checkout(orderId, seatIds, mock);
-      const order = await fetchOrder(orderId);
+      await api.checkout(orderId, seatIds, mock);
+      const order = await api.fetchOrder(orderId);
       const status = order.payment?.status ?? null;
       setEarlierOrder(status === "succeeded" && order.tickets.length > 0 ? order : null);
       if (status === "succeeded") {
         setPaidOrder(order);
         setConfirmedHold(null);
+        setActiveHold(null);
         setTicketIdsToCancel([]);
         setRefundMock(null);
         setRefundScript(null);
@@ -568,12 +692,49 @@ export default function App() {
       setPaymentStatus(status);
       if (status === "declined") {
         setConfirmedHold(null);
+        setActiveHold(null);
         if (eventId != null) {
           await loadSeatMap(eventId);
         }
       }
     } catch {
       setCheckoutError("Checkout did not complete.");
+    }
+  }
+
+  async function submitReconcilePayment() {
+    if (confirmedHold == null || paymentMock == null || typeof api.reconcilePayment !== "function") {
+      return;
+    }
+    const orderId = confirmedHold.orderId;
+    const eventId = seatMap?.id;
+    setCheckoutError(null);
+    try {
+      const order = await api.reconcilePayment(orderId, paymentMock);
+      const status = order.payment?.status ?? null;
+      setEarlierOrder(status === "succeeded" && order.tickets.length > 0 ? order : null);
+      if (status === "succeeded") {
+        setPaidOrder(order);
+        setConfirmedHold(null);
+        setActiveHold(null);
+        setTicketIdsToCancel([]);
+        setRefundMock(null);
+        setRefundScript(null);
+        setRefundAmountCents(null);
+        setCancelError(null);
+        setCheckoutOpen(false);
+        return;
+      }
+      setPaymentStatus(status);
+      if (status === "declined") {
+        setConfirmedHold(null);
+        setActiveHold(null);
+        if (eventId != null) {
+          await loadSeatMap(eventId);
+        }
+      }
+    } catch {
+      setCheckoutError("Payment lookup did not complete.");
     }
   }
 
@@ -594,7 +755,7 @@ export default function App() {
     const mock = refundMock;
     setCancelError(null);
     try {
-      const order = await cancelTickets(orderId, seatIds, mock);
+      const order = await api.cancelTickets(orderId, seatIds, mock);
       const latestRefund = order.refunds[order.refunds.length - 1];
       setPaidOrder(order);
       setEarlierOrder((current) => {
@@ -611,6 +772,28 @@ export default function App() {
     }
   }
 
+  async function submitReconcileRefund() {
+    if (paidOrder == null || refundMock == null || typeof api.reconcileRefund !== "function") {
+      return;
+    }
+    setCancelError(null);
+    try {
+      const order = await api.reconcileRefund(paidOrder.id, refundMock);
+      const latestRefund = order.refunds[order.refunds.length - 1];
+      setPaidOrder(order);
+      setEarlierOrder((current) => {
+        if (current == null || current.id !== order.id) {
+          return current;
+        }
+        return order.tickets.length > 0 ? order : null;
+      });
+      setRefundScript(refundMock);
+      setRefundAmountCents(latestRefund == null ? null : latestRefund.amountCents);
+    } catch {
+      setCancelError("Refund lookup did not complete.");
+    }
+  }
+
   async function submitPromo(event: FormEvent) {
     event.preventDefault();
     if (confirmedHold == null) {
@@ -623,8 +806,10 @@ export default function App() {
     setAttaching(true);
     setPromoError(null);
     try {
-      const order = await attachPromoCode(confirmedHold.orderId, code);
+      const order = await api.attachPromoCode(confirmedHold.orderId, code);
       setPromoCode(order.promoCode);
+      setPromoAmountCents(order.promoAmountCents ?? null);
+      setPromoExclusive(order.promoExclusive ?? null);
     } catch {
       setPromoError("That promo code could not be attached.");
     } finally {
@@ -641,7 +826,15 @@ export default function App() {
         {priceUnavailable ? (
           <li>The price did not load.</li>
         ) : (
-          orderPriceLines(seatMap, seatIds, pricedAt, saleTerms, promoCode).map((line) => <li key={line}>{line}</li>)
+          orderPriceLines(
+            seatMap,
+            seatIds,
+            pricedAt,
+            saleTerms,
+            promoCode,
+            promoAmountCents,
+            promoExclusive,
+          ).map((line) => <li key={line}>{line}</li>)
         )}
       </ul>
     );
@@ -660,6 +853,8 @@ export default function App() {
     waitlist == null &&
     offeredHolds.length === 0 &&
     seatMap.sections.every((section) => section.seats.every((seat) => seat.state !== "free"));
+  const hasUnresolvedRefund =
+    paidOrder?.refunds.some((refund) => refund.status === "unknown" || refund.status === "pending") ?? false;
 
   if (signedIn == null) {
     return (
@@ -729,12 +924,19 @@ export default function App() {
         </>
       ) : (
         <section className="opened-event">
-          <h2 className="event-name">{openedEvent.name}</h2>
-          <p className="event-meta">
-            {openedEvent.venueName}
-            <span aria-hidden="true"> · </span>
-            {formatWhen(openedEvent.startsAt, openedEvent.timeZone)}
-          </p>
+          <div className="opened-event-bar">
+            <div>
+              <h2 className="event-name">{openedEvent.name}</h2>
+              <p className="event-meta">
+                {openedEvent.venueName}
+                <span aria-hidden="true"> · </span>
+                {formatWhen(openedEvent.startsAt, openedEvent.timeZone)}
+              </p>
+            </div>
+            <button type="button" className="secondary" onClick={backToSearch}>
+              Search events
+            </button>
+          </div>
         </section>
       )}
       {opening ? <p className="status">Loading the seat map…</p> : null}
@@ -783,6 +985,16 @@ export default function App() {
           >
             Cancel selected
           </button>
+          {hasUnresolvedRefund ? (
+            <button
+              type="button"
+              className="secondary"
+              disabled={refundMock == null}
+              onClick={() => void submitReconcileRefund()}
+            >
+              Reconcile refund
+            </button>
+          ) : null}
           {cancelError != null ? <p className="error">{cancelError}</p> : null}
           {confirmedHold == null ? (
             <button type="button" className="secondary" onClick={backToSeatMap}>
@@ -824,6 +1036,16 @@ export default function App() {
               <button type="button" className="primary" onClick={() => void submitCheckout()}>
                 Check out
               </button>
+              {paymentStatus === "unknown" || paymentStatus === "pending" ? (
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={paymentMock == null}
+                  onClick={() => void submitReconcilePayment()}
+                >
+                  Reconcile payment
+                </button>
+              ) : null}
               {checkoutError != null ? <p className="error">{checkoutError}</p> : null}
             </>
           ) : null}
@@ -890,10 +1112,46 @@ export default function App() {
           <button type="button" className="secondary" onClick={() => void leaveHold()}>
             Change seats
           </button>
+          <button type="button" className="secondary" disabled={releasing} onClick={() => void submitReleaseHold()}>
+            {releasing ? "Releasing…" : "Release hold"}
+          </button>
         </section>
       ) : seatMap != null ? (
         <section className="map">
           {priceTierLine(seatMap) != null ? <p className="price-line">{priceTierLine(seatMap)}</p> : null}
+          {activeHold != null ? (
+            <div className="active-hold-banner" role="region" aria-label="Active hold">
+              <p>
+                Held for you: {activeHold.labels.join(", ")} (until{" "}
+                {formatWhen(activeHold.heldUntil, seatMap.timeZone)})
+              </p>
+              <div className="active-hold-actions">
+                <button type="button" className="secondary" onClick={() => void resumeHoldCheckout()}>
+                  Check out
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={releasing}
+                  onClick={() => void submitReleaseHold()}
+                >
+                  {releasing ? "Releasing…" : "Release hold"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {earlierOrder != null && earlierOrder.tickets.length > 0 ? (
+            <a
+              className="ticket-link"
+              href={`#tickets-${earlierOrder.id}`}
+              onClick={(event) => {
+                event.preventDefault();
+                openEarlierTickets();
+              }}
+            >
+              Tickets {earlierOrder.tickets.map((ticket) => ticket.label).join(", ")}
+            </a>
+          ) : null}
           <ul className="legend" aria-label="Legend">
             {legendMarks.map((item) => (
               <li key={item.word}>
@@ -934,7 +1192,8 @@ export default function App() {
                                 }
                                 seatRefs.current.set(seat.id, node);
                               }}
-                              className={`seat seat-${word}${seat.id === focusedSeatId ? " seat-focused" : ""}`}
+                              className={`seat seat-${word}${seat.yours ? " seat-yours" : ""}${seat.id === focusedSeatId ? " seat-focused" : ""}`}
+                              data-yours={seat.yours ? "true" : undefined}
                               aria-label={`${seat.label} ${seat.state === "free" ? "free" : seat.state}`}
                               aria-pressed={seat.state === "free" ? selected : undefined}
                               aria-disabled={seat.state === "free" ? undefined : true}

@@ -15,6 +15,8 @@ export type SeatView = {
   priceCents: number;
   earlyBirdPriceCents: number | null;
   state: SeatState;
+  yours?: boolean;
+  heldUntil?: string | null;
 };
 
 export type SectionSeats = {
@@ -31,6 +33,10 @@ export type EventSeatMap = {
   earlyBirdStartsAt: string | null;
   earlyBirdEndsAt: string | null;
   sections: SectionSeats[];
+  cancelled?: boolean;
+  rescheduled?: boolean;
+  activeHoldOrderId?: number | null;
+  paidOrderIds?: number[];
 };
 
 export type SignedIn = {
@@ -105,6 +111,8 @@ export type OrderView = {
   tickets: TicketView[];
   refunds: RefundView[];
   holds: HoldView[];
+  promoAmountCents?: number | null;
+  promoExclusive?: boolean | null;
 };
 
 export type WaitlistPlace = {
@@ -140,6 +148,22 @@ export async function holdSeats(eventId: number, seatIds: number[]): Promise<Hel
   return readJson<HeldSeats>(response);
 }
 
+export async function releaseOrderHolds(orderId: number): Promise<OrderView> {
+  const response = await fetch(`/api/orders/${orderId}/holds`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  return readJson<OrderView>(response);
+}
+
+export async function releaseSeatHold(orderId: number, seatId: number): Promise<OrderView> {
+  const response = await fetch(`/api/orders/${orderId}/holds/${seatId}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  return readJson<OrderView>(response);
+}
+
 export async function attachPromoCode(orderId: number, code: string): Promise<OrderView> {
   const response = await fetch(`/api/orders/${orderId}/promo-code`, {
     method: "POST",
@@ -162,12 +186,32 @@ export async function checkout(orderId: number, seatIds: number[], mock: Payment
   }
 }
 
+export async function reconcilePayment(orderId: number, lookup: PaymentMock): Promise<OrderView> {
+  const response = await fetch(`/api/orders/${orderId}/reconcile`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ lookup }),
+  });
+  return readJson<OrderView>(response);
+}
+
 export async function cancelTickets(orderId: number, seatIds: number[], mock: PaymentMock): Promise<OrderView> {
   const response = await fetch(`/api/orders/${orderId}/cancel`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
     body: JSON.stringify({ seatIds, mock }),
+  });
+  return readJson<OrderView>(response);
+}
+
+export async function reconcileRefund(orderId: number, lookup: PaymentMock): Promise<OrderView> {
+  const response = await fetch(`/api/orders/${orderId}/refunds/reconcile`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ lookup }),
   });
   return readJson<OrderView>(response);
 }
