@@ -1,8 +1,5 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
-  attachPromoCode,
-  cancelTickets,
-  checkout,
   fetchOrder,
   fetchSeatMap,
   fetchWaitlist,
@@ -13,15 +10,15 @@ import {
   type EventSeatMap,
   type EventSummary,
   type HoldView,
-  type OrderView,
-  type PaymentMock,
-  type PaymentStatus,
-  type RefundStatus,
   type SeatState,
   type SeatView,
   type SignedIn,
   type WaitlistPlace,
 } from "./api";
+
+function readClock(): number {
+  return Date.now();
+}
 
 function formatCents(cents: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
@@ -35,6 +32,35 @@ function formatWhen(instant: string, timeZone: string): string {
   }).format(new Date(instant));
 }
 
+function currentPriceCents(map: EventSeatMap, seat: SeatView, now: number): number {
+  if (seat.earlyBirdPriceCents == null || map.earlyBirdStartsAt == null || map.earlyBirdEndsAt == null) {
+    return seat.priceCents;
+  }
+  const start = new Date(map.earlyBirdStartsAt).getTime();
+  const end = new Date(map.earlyBirdEndsAt).getTime();
+  if (now >= start && now < end) {
+    return seat.earlyBirdPriceCents;
+  }
+  return seat.priceCents;
+}
+
+function priceTierLine(map: EventSeatMap): string | null {
+  const tiers = new Set<number>();
+  for (const section of map.sections) {
+    for (const seat of section.seats) {
+      tiers.add(seat.priceCents);
+    }
+  }
+  if (tiers.size === 0) {
+    return null;
+  }
+  const formatted = [...tiers].sort((left, right) => left - right).map((cents) => formatCents(cents)).join(", ");
+  if (map.earlyBirdEndsAt != null) {
+    return `Early-bird ends ${formatWhen(map.earlyBirdEndsAt, map.timeZone)}. The price tier is ${formatted} after that.`;
+  }
+  return `The price tier is ${formatted}.`;
+}
+
 function seatById(map: EventSeatMap, seatId: number): SeatView | undefined {
   for (const section of map.sections) {
     const seat = section.seats.find((candidate) => candidate.id === seatId);
@@ -45,16 +71,29 @@ function seatById(map: EventSeatMap, seatId: number): SeatView | undefined {
   return undefined;
 }
 
-function stateLabel(state: SeatState): string {
+type SeatMarkKind = "ring" | "check" | "amber" | "hash" | "slash";
+
+const legendMarks: { word: string; mark: SeatMarkKind }[] = [
+  { word: "free", mark: "ring" },
+  { word: "held", mark: "amber" },
+  { word: "blocked", mark: "hash" },
+  { word: "ticket", mark: "slash" },
+  { word: "selected", mark: "check" },
+];
+
+function markKind(state: SeatState, selected: boolean): SeatMarkKind {
+  if (selected) {
+    return "check";
+  }
   switch (state) {
     case "free":
-      return "Free";
+      return "ring";
     case "held":
-      return "Held";
+      return "amber";
     case "blocked":
-      return "Blocked";
+      return "hash";
     case "ticket":
-      return "Ticket";
+      return "slash";
     default: {
       const unexpected: never = state;
       return unexpected;
@@ -62,38 +101,70 @@ function stateLabel(state: SeatState): string {
   }
 }
 
-function refundLabel(status: RefundStatus): string {
-  switch (status) {
-    case "pending":
-      return "Pending";
-    case "unknown":
-      return "Unknown";
-    case "succeeded":
-      return "Succeeded";
-    case "failed":
-      return "Failed";
-    default: {
-      const unexpected: never = status;
-      return unexpected;
-    }
-  }
+function SeatMark({ kind }: { kind: SeatMarkKind }) {
+  return (
+    <span className={`mark mark-${kind}`} data-mark={kind} aria-hidden="true">
+      {kind === "check" ? "✓" : null}
+      {kind === "hash" ? "#×" : null}
+      {kind === "slash" ? "/" : null}
+    </span>
+  );
 }
 
-function paymentLabel(status: PaymentStatus): string {
-  switch (status) {
-    case "pending":
-      return "Pending";
-    case "unknown":
-      return "Unknown";
-    case "succeeded":
-      return "Succeeded";
-    case "declined":
-      return "Declined";
-    default: {
-      const unexpected: never = status;
-      return unexpected;
+type PlacedSeat = { row: string; column: number; seat: SeatView };
+
+function placedSeats(seats: SeatView[]): PlacedSeat[] {
+  const placed: PlacedSeat[] = [];
+  for (const seat of seats) {
+    const match = /^([A-Za-z]+)(\d+)$/.exec(seat.label);
+    if (match != null) {
+      placed.push({ row: match[1], column: Number(match[2]), seat });
     }
   }
+  return placed;
+}
+
+function seatRows(seats: SeatView[]): { key: string; seats: SeatView[] }[] {
+  const placed = placedSeats(seats);
+  const placedIds = new Set(placed.map((item) => item.seat.id));
+  const names = [...new Set(placed.map((item) => item.row))].sort((left, right) => left.localeCompare(right));
+  const rows = names.map((name) => ({
+    key: name,
+    seats: placed
+      .filter((item) => item.row === name)
+      .sort((left, right) => left.column - right.column)
+      .map((item) => item.seat),
+  }));
+  const loose = seats.filter((seat) => !placedIds.has(seat.id));
+  if (loose.length > 0) {
+    rows.push({ key: "other", seats: loose });
+  }
+  return rows;
+}
+
+function seatInDirection(seats: SeatView[], seatId: number, key: string): SeatView | null {
+  const placed = placedSeats(seats);
+  const current = placed.find((item) => item.seat.id === seatId);
+  if (current == null) {
+    return null;
+  }
+  const rows = [...new Set(placed.map((item) => item.row))].sort((left, right) => left.localeCompare(right));
+  const rowIndex = rows.indexOf(current.row);
+  if (key === "ArrowLeft") {
+    return placed.find((item) => item.row === current.row && item.column === current.column - 1)?.seat ?? null;
+  }
+  if (key === "ArrowRight") {
+    return placed.find((item) => item.row === current.row && item.column === current.column + 1)?.seat ?? null;
+  }
+  if (key === "ArrowUp") {
+    const row = rows[rowIndex - 1];
+    return row == null ? null : placed.find((item) => item.row === row && item.column === current.column)?.seat ?? null;
+  }
+  if (key === "ArrowDown") {
+    const row = rows[rowIndex + 1];
+    return row == null ? null : placed.find((item) => item.row === row && item.column === current.column)?.seat ?? null;
+  }
+  return null;
 }
 
 export default function App() {
@@ -113,24 +184,25 @@ export default function App() {
   const [selectedSeatIds, setSelectedSeatIds] = useState<number[]>([]);
   const [holding, setHolding] = useState(false);
   const [holdError, setHoldError] = useState<string | null>(null);
-  const [orderId, setOrderId] = useState<number | null>(null);
-  const [heldSeatIds, setHeldSeatIds] = useState<number[]>([]);
-  const [mockResult, setMockResult] = useState<PaymentMock>("success");
-  const [promoCode, setPromoCode] = useState("");
-  const [attachedPromo, setAttachedPromo] = useState<string | null>(null);
-  const [applyingPromo, setApplyingPromo] = useState(false);
-  const [promoError, setPromoError] = useState<string | null>(null);
-  const [checkingOut, setCheckingOut] = useState(false);
-  const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const [order, setOrder] = useState<OrderView | null>(null);
-  const [refundMock, setRefundMock] = useState<PaymentMock>("success");
-  const [ticketsToCancel, setTicketsToCancel] = useState<number[]>([]);
-  const [cancelling, setCancelling] = useState(false);
-  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [confirmedHold, setConfirmedHold] = useState<{ labels: string[]; heldUntil: string } | null>(null);
+  const [tabStops, setTabStops] = useState<Record<string, number>>({});
+  const [focusedSeatId, setFocusedSeatId] = useState<number | null>(null);
+  const seatRefs = useRef(new Map<number, HTMLButtonElement>());
+  const pendingFocusId = useRef<number | null>(null);
+  const [pricedAt, setPricedAt] = useState(0);
   const [waitlist, setWaitlist] = useState<WaitlistPlace | null>(null);
   const [offeredHolds, setOfferedHolds] = useState<HoldView[]>([]);
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (pendingFocusId.current == null) {
+      return;
+    }
+    const node = seatRefs.current.get(pendingFocusId.current);
+    pendingFocusId.current = null;
+    node?.focus();
+  });
 
   async function loadSeatMap(eventId: number) {
     setOpening(true);
@@ -138,6 +210,7 @@ export default function App() {
     try {
       const map = await fetchSeatMap(eventId);
       setSeatMap(map);
+      setPricedAt(readClock());
       setSelectedSeatIds((current) => current.filter((id) => seatById(map, id)?.state === "free"));
       await loadWaitlist(eventId);
     } catch {
@@ -158,11 +231,6 @@ export default function App() {
       }
       const offered = await fetchOrder(line.orderId);
       setOfferedHolds(offered.holds);
-      if (offered.holds.length === 0) {
-        return;
-      }
-      setOrderId(offered.id);
-      setHeldSeatIds(offered.holds.map((hold) => hold.seatId));
     } catch {
       setJoinError("The waitlist did not load.");
     }
@@ -231,17 +299,38 @@ export default function App() {
     setSeatMap(null);
     setSelectedSeatIds([]);
     setHoldError(null);
-    setCheckoutError(null);
+    setConfirmedHold(null);
+    setTabStops({});
     setWaitlist(null);
     setOfferedHolds([]);
     setJoinError(null);
-    setOrderId(null);
-    setHeldSeatIds([]);
-    setOrder(null);
-    setPromoCode("");
-    setAttachedPromo(null);
-    setPromoError(null);
     await loadSeatMap(eventId);
+  }
+
+  function moveSeatFocus(sectionName: string, seatId: number) {
+    pendingFocusId.current = seatId;
+    setTabStops((current) => ({ ...current, [sectionName]: seatId }));
+  }
+
+  function onSeatKeyDown(
+    sectionName: string,
+    seats: SeatView[],
+    seat: SeatView,
+    event: KeyboardEvent<HTMLButtonElement>,
+  ) {
+    const arrow =
+      event.key === "ArrowLeft" ||
+      event.key === "ArrowRight" ||
+      event.key === "ArrowUp" ||
+      event.key === "ArrowDown";
+    if (!arrow) {
+      return;
+    }
+    event.preventDefault();
+    const next = seatInDirection(seats, seat.id, event.key);
+    if (next != null) {
+      moveSeatFocus(sectionName, next.id);
+    }
   }
 
   function toggleSeat(seat: SeatView) {
@@ -260,90 +349,31 @@ export default function App() {
     }
     const eventId = seatMap.id;
     const seatsToHold = selectedSeatIds;
+    const labels = seatsToHold
+      .map((id) => seatById(seatMap, id)?.label)
+      .filter((label): label is string => label != null);
     setHolding(true);
     setHoldError(null);
     try {
       const held = await holdSeats(eventId, seatsToHold);
-      if (orderId !== held.orderId) {
-        setAttachedPromo(null);
-        setPromoCode("");
-        setPromoError(null);
-      }
-      setOrderId(held.orderId);
-      setHeldSeatIds((current) => (orderId === held.orderId ? [...current, ...seatsToHold] : [...seatsToHold]));
+      setConfirmedHold({ labels, heldUntil: held.heldUntil });
       setSelectedSeatIds([]);
     } catch {
       setHoldError("Those seats could not be held.");
-    } finally {
       await loadSeatMap(eventId);
+    } finally {
       setHolding(false);
     }
   }
 
-  async function submitPromo() {
-    if (orderId == null || promoCode.trim() === "") {
-      return;
-    }
-    setApplyingPromo(true);
-    setPromoError(null);
-    try {
-      const attached = await attachPromoCode(orderId, promoCode.trim());
-      setAttachedPromo(attached.promoCode);
-      setPromoCode("");
-    } catch {
-      setPromoError("That promo code could not be attached.");
-    } finally {
-      setApplyingPromo(false);
-    }
-  }
-
-  async function submitCheckout() {
-    if (seatMap == null || orderId == null || heldSeatIds.length === 0) {
-      return;
-    }
-    const eventId = seatMap.id;
-    const checkedOutOrderId = orderId;
-    setCheckingOut(true);
-    setCheckoutError(null);
-    try {
-      await checkout(checkedOutOrderId, heldSeatIds, mockResult);
-      setHeldSeatIds([]);
-      setTicketsToCancel([]);
-      setCancelError(null);
-      setOrder(await fetchOrder(checkedOutOrderId));
-    } catch {
-      setCheckoutError("Checkout did not complete.");
-    } finally {
-      await loadSeatMap(eventId);
-      setCheckingOut(false);
-    }
-  }
-
-  function toggleTicket(seatId: number) {
-    setTicketsToCancel((current) =>
-      current.includes(seatId) ? current.filter((id) => id !== seatId) : [...current, seatId],
-    );
-  }
-
-  async function submitCancel(seatIds: number[]) {
-    if (seatMap == null || order == null || seatIds.length === 0) {
-      return;
-    }
-    const eventId = seatMap.id;
-    setCancelling(true);
-    setCancelError(null);
-    try {
-      setOrder(await cancelTickets(order.id, seatIds, refundMock));
-      setTicketsToCancel([]);
-    } catch {
-      setCancelError("Those tickets could not be cancelled.");
-    } finally {
-      await loadSeatMap(eventId);
-      setCancelling(false);
-    }
-  }
-
   const openedEvent = events.find((event) => event.id === openEventId) ?? null;
+  const ticketTotalCents =
+    seatMap == null
+      ? 0
+      : selectedSeatIds.reduce((sum, id) => {
+          const chosen = seatById(seatMap, id);
+          return chosen == null ? sum : sum + currentPriceCents(seatMap, chosen, pricedAt);
+        }, 0);
 
   if (signedIn == null) {
     return (
@@ -420,20 +450,38 @@ export default function App() {
       )}
       {opening ? <p className="status">Loading the seat map…</p> : null}
       {mapError != null ? <p className="error">{mapError}</p> : null}
-      {seatMap != null ? (
+      {confirmedHold != null && openedEvent != null ? (
+        <section className="hold-screen">
+          <h3>Hold</h3>
+          <p>{formatWhen(confirmedHold.heldUntil, openedEvent.timeZone)}</p>
+          <ul>
+            {confirmedHold.labels.map((label) => (
+              <li key={label}>{label}</li>
+            ))}
+          </ul>
+        </section>
+      ) : seatMap != null ? (
         <section className="map">
           <div className="hold-bar">
-            <button type="button" onClick={() => void submitHold()} disabled={holding || selectedSeatIds.length === 0}>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => void submitHold()}
+              disabled={holding || selectedSeatIds.length === 0}
+            >
               {holding ? "Holding…" : "Hold seats"}
             </button>
             <p>{selectedSeatIds.length === 0 ? "Select free seats to hold." : `${selectedSeatIds.length} selected`}</p>
+            {selectedSeatIds.length > 0 ? (
+              <p className="ticket-total">Ticket total {formatCents(ticketTotalCents)}</p>
+            ) : null}
             {holdError != null ? <p className="error">{holdError}</p> : null}
           </div>
           <div className="hold-bar">
             {waitlist != null ? (
               <p>You are number {waitlist.place} in line.</p>
             ) : seatMap.sections.every((section) => section.seats.every((seat) => seat.state !== "free")) ? (
-              <button type="button" onClick={() => void submitJoin()} disabled={joining}>
+              <button type="button" className="waitlist" onClick={() => void submitJoin()} disabled={joining}>
                 {joining ? "Joining…" : "Join waitlist"}
               </button>
             ) : null}
@@ -445,142 +493,73 @@ export default function App() {
             ) : null}
             {joinError != null ? <p className="error">{joinError}</p> : null}
           </div>
-          <div className="hold-bar">
-            <label>
-              Promo code
-              <input
-                value={promoCode}
-                onChange={(event) => setPromoCode(event.target.value)}
-                disabled={applyingPromo || checkingOut || orderId == null}
-              />
-            </label>
-            <button
-              type="button"
-              onClick={() => void submitPromo()}
-              disabled={applyingPromo || checkingOut || orderId == null || promoCode.trim() === ""}
-            >
-              {applyingPromo ? "Applying…" : "Apply promo code"}
-            </button>
-            {attachedPromo != null ? <p>Promo code {attachedPromo}</p> : null}
-            {promoError != null ? <p className="error">{promoError}</p> : null}
-          </div>
-          <div className="hold-bar">
-            <label>
-              Payment result
-              <select
-                value={mockResult}
-                onChange={(event) => setMockResult(event.target.value as PaymentMock)}
-                disabled={checkingOut}
-              >
-                <option value="success">Success</option>
-                <option value="decline">Decline</option>
-                <option value="timeout">Timeout</option>
-                <option value="unknown">Unknown</option>
-              </select>
-            </label>
-            <button
-              type="button"
-              onClick={() => void submitCheckout()}
-              disabled={checkingOut || holding || heldSeatIds.length === 0}
-            >
-              {checkingOut ? "Checking out…" : "Check out"}
-            </button>
-            {checkoutError != null ? <p className="error">{checkoutError}</p> : null}
-          </div>
-          {order != null ? (
-            <div className="order">
-              <h3>Order</h3>
-              <p>
-                Payment: {order.payment == null ? "None" : paymentLabel(order.payment.status)}
-                {order.payment == null ? "" : ` · ${formatCents(order.payment.amountCents)}`}
-              </p>
-              <p>
-                Tickets: {order.tickets.length === 0 ? "None" : order.tickets.map((ticket) => ticket.label).join(", ")}
-              </p>
-              {order.refunds.length === 0 ? (
-                <p>Refund: None</p>
-              ) : (
-                order.refunds.map((refund, index) => (
-                  <p key={`${refund.status}-${refund.amountCents}-${index}`}>
-                    Refund: {refundLabel(refund.status)} · {formatCents(refund.amountCents)}
-                  </p>
-                ))
-              )}
-              {order.tickets.length > 0 ? (
-                <div className="hold-bar">
-                  <ul className="ticket-choices">
-                    {order.tickets.map((ticket) => (
-                      <li key={ticket.seatId}>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={ticketsToCancel.includes(ticket.seatId)}
-                            onChange={() => toggleTicket(ticket.seatId)}
-                            disabled={cancelling}
-                          />
-                          {ticket.label}
-                        </label>
-                      </li>
-                    ))}
-                  </ul>
-                  <label>
-                    Refund result
-                    <select
-                      value={refundMock}
-                      onChange={(event) => setRefundMock(event.target.value as PaymentMock)}
-                      disabled={cancelling}
-                    >
-                      <option value="success">Success</option>
-                      <option value="decline">Decline</option>
-                      <option value="timeout">Timeout</option>
-                      <option value="unknown">Unknown</option>
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => void submitCancel(ticketsToCancel)}
-                    disabled={cancelling || ticketsToCancel.length === 0}
-                  >
-                    {cancelling ? "Cancelling…" : "Cancel selected"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void submitCancel(order.tickets.map((ticket) => ticket.seatId))}
-                    disabled={cancelling}
-                  >
-                    {cancelling ? "Cancelling…" : "Cancel all"}
-                  </button>
-                  {cancelError != null ? <p className="error">{cancelError}</p> : null}
+          {priceTierLine(seatMap) != null ? <p className="price-line">{priceTierLine(seatMap)}</p> : null}
+          <p className="stage">Stage</p>
+          <ul className="legend" aria-label="Legend">
+            {legendMarks.map((item) => (
+              <li key={item.word}>
+                <SeatMark kind={item.mark} />
+                {item.word}
+              </li>
+            ))}
+          </ul>
+          {seatMap.sections.map((section) => {
+            const rows = seatRows(section.seats);
+            const tabStopId =
+              tabStops[section.name] != null && section.seats.some((seat) => seat.id === tabStops[section.name])
+                ? tabStops[section.name]
+                : rows.flatMap((row) => row.seats)[0]?.id;
+            return (
+              <div key={section.name} className="section">
+                <h3 id={`section-${section.name}`}>{section.name}</h3>
+                <div className="seat-grid" role="grid" aria-labelledby={`section-${section.name}`}>
+                  {rows.map((row) => (
+                    <div key={row.key} className="seat-row" role="row">
+                      {row.seats.map((seat) => {
+                        const selected = seat.state === "free" && selectedSeatIds.includes(seat.id);
+                        const word = selected ? "selected" : seat.state;
+                        return (
+                          <div key={seat.id} role="gridcell">
+                            <button
+                              type="button"
+                              ref={(node) => {
+                                if (node == null) {
+                                  seatRefs.current.delete(seat.id);
+                                  return;
+                                }
+                                seatRefs.current.set(seat.id, node);
+                              }}
+                              className={`seat seat-${word}${seat.id === focusedSeatId ? " seat-focused" : ""}`}
+                              aria-label={`${seat.label} ${seat.state === "free" ? "free" : seat.state}`}
+                              aria-pressed={seat.state === "free" ? selected : undefined}
+                              aria-disabled={seat.state === "free" ? undefined : true}
+                              tabIndex={seat.id === tabStopId ? 0 : -1}
+                              onFocus={() => {
+                                setFocusedSeatId(seat.id);
+                                setTabStops((current) =>
+                                  current[section.name] === seat.id ? current : { ...current, [section.name]: seat.id },
+                                );
+                              }}
+                              onBlur={() => setFocusedSeatId((current) => (current === seat.id ? null : current))}
+                              onKeyDown={(event) => onSeatKeyDown(section.name, section.seats, seat, event)}
+                              onClick={() => toggleSeat(seat)}
+                            >
+                              <SeatMark kind={markKind(seat.state, selected)} />
+                              <span className="label">{seat.label}</span>
+                              {seat.state === "free" ? (
+                                <span className="price">{formatCents(currentPriceCents(seatMap, seat, pricedAt))}</span>
+                              ) : null}
+                              <span className="state">{word}</span>
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
-              ) : null}
-            </div>
-          ) : null}
-          {seatMap.sections.map((section) => (
-            <div key={section.name} className="section">
-              <h3>{section.name}</h3>
-              <div className="seats">
-                {section.seats.map((seat) => {
-                  const selected = selectedSeatIds.includes(seat.id);
-                  return (
-                    <button
-                      key={seat.id}
-                      type="button"
-                      className={`seat seat-${seat.state}${selected ? " seat-selected" : ""}`}
-                      disabled={seat.state !== "free" || holding}
-                      onClick={() => toggleSeat(seat)}
-                    >
-                      <span className="label">{seat.label}</span>
-                      <span className="price">{formatCents(seat.priceCents)}</span>
-                      {seat.earlyBirdPriceCents != null ? (
-                        <span className="early">Early-bird {formatCents(seat.earlyBirdPriceCents)}</span>
-                      ) : null}
-                      <span className="state">{selected ? "Selected" : stateLabel(seat.state)}</span>
-                    </button>
-                  );
-                })}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </section>
       ) : null}
     </main>
