@@ -17,6 +17,10 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
 
     List<EventSeat> findByOrderIdAndActiveTrueAndKind(Long orderId, EventSeatKind kind);
 
+    List<EventSeat> findByOrderIdAndActiveTrueAndKindOrderBySeatIdAsc(Long orderId, EventSeatKind kind);
+
+    List<EventSeat> findByOrderCustomerIdAndEventIdAndActiveTrueOrderByIdAsc(Long customerId, Long eventId);
+
     @Query("""
             select claim
             from EventSeat claim
@@ -39,6 +43,7 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
             where claim.order.id = :orderId
               and claim.active = true
               and claim.seat.id in :seatIds
+            order by claim.id asc
             """)
     List<EventSeat> lockActiveForSeats(@Param("orderId") long orderId, @Param("seatIds") List<Long> seatIds);
 
@@ -48,6 +53,7 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
             from EventSeat claim
             where claim.order.id = :orderId
               and claim.active = true
+            order by claim.id asc
             """)
     List<EventSeat> lockActiveOnOrder(@Param("orderId") long orderId);
 
@@ -80,7 +86,18 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
                   select payment.id
                   from Payment payment
                   where payment.order = claim.order
+                    and payment.status <> ticketbooking.payment.PaymentStatus.DECLINED
+                    and (
+                        claim.startingPriceCents is not null
+                        or not exists (
+                            select priced.id
+                            from EventSeat priced
+                            where priced.order = claim.order
+                              and priced.startingPriceCents is not null
+                        )
+                    )
               )
+            order by claim.id asc
             """)
     List<EventSeat> lockExpiredHolds(
             @Param("eventId") long eventId,
@@ -117,7 +134,18 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
                   select payment.id
                   from Payment payment
                   where payment.order = claim.order
+                    and payment.status <> ticketbooking.payment.PaymentStatus.DECLINED
+                    and (
+                        claim.startingPriceCents is not null
+                        or not exists (
+                            select priced.id
+                            from EventSeat priced
+                            where priced.order = claim.order
+                              and priced.startingPriceCents is not null
+                        )
+                    )
               )
+            order by claim.id asc
             """)
     List<EventSeat> lockBareHolds(@Param("eventId") long eventId);
 }

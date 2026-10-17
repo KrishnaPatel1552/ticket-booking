@@ -3,6 +3,7 @@ package ticketbooking.event;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -36,7 +37,8 @@ public class EventController {
     }
 
     @GetMapping("/api/events/{eventId}")
-    public EventSeatMap open(@PathVariable long eventId) {
-        return seatMapQuery.open(eventId);
+    public EventSeatMap open(@PathVariable long eventId, Authentication authentication) {
+        String email = authentication == null ? null : authentication.getName();
+        return seatMapQuery.open(eventId, email);
     }
 }

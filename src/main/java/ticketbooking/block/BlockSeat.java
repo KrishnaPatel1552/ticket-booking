@@ -9,6 +9,7 @@ import ticketbooking.event.EventRepository;
 import ticketbooking.hold.EventSeat;
 import ticketbooking.hold.EventSeatKind;
 import ticketbooking.hold.EventSeatRepository;
+import ticketbooking.hold.ExpiredHoldRelease;
 import ticketbooking.hold.HoldGate;
 import ticketbooking.signin.Account;
 import ticketbooking.signin.AccountRepository;
@@ -36,6 +37,7 @@ public class BlockSeat {
     private final HoldGate holdGate;
     private final AppClock clock;
     private final OfferWaitlist offerWaitlist;
+    private final ExpiredHoldRelease expiredHoldRelease;
 
     public BlockSeat(
             AccountRepository accounts,
@@ -47,7 +49,8 @@ public class BlockSeat {
             SeatRowLock seatRowLock,
             HoldGate holdGate,
             AppClock clock,
-            OfferWaitlist offerWaitlist) {
+            OfferWaitlist offerWaitlist,
+            ExpiredHoldRelease expiredHoldRelease) {
         this.accounts = accounts;
         this.events = events;
         this.seats = seats;
@@ -58,6 +61,7 @@ public class BlockSeat {
         this.holdGate = holdGate;
         this.clock = clock;
         this.offerWaitlist = offerWaitlist;
+        this.expiredHoldRelease = expiredHoldRelease;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -65,6 +69,7 @@ public class BlockSeat {
         Account admin = admin(email);
         Event event = event(eventId);
         Seat seat = seatAtEvent(seatId, event);
+        expiredHoldRelease.release(event.getId());
         seatRowLock.lockInIdOrder(List.of(seat.getId()));
         holdGate.afterSeatLock();
         if (eventSeats.findByEventIdAndSeatIdAndActiveTrue(event.getId(), seat.getId()).isPresent()
