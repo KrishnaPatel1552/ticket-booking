@@ -24,6 +24,7 @@ vi.mock("./api", () => ({
   attachPromoCode: vi.fn(),
   checkout: vi.fn(),
   fetchOrder: vi.fn(),
+  fetchSaleTerms: vi.fn(),
   cancelTickets: vi.fn(),
 }));
 
@@ -184,8 +185,8 @@ test("an offered hold is named on the seat map and opens the order screen", asyn
   expect(holdScreen?.textContent).toContain("A2");
   expect(holdScreen?.textContent).toContain("Jun 12, 2026, 7:15 PM");
   expect(screen.queryByRole("grid")).toBeNull();
-  expect(screen.queryByRole("button", { name: "Check out" })).toBeNull();
-  expect(screen.queryByLabelText(/promo code/i)).toBeNull();
+  expect(screen.getByRole("button", { name: "Check out" })).toBeTruthy();
+  expect(screen.getByLabelText(/promo code/i)).toBeTruthy();
 });
 
 test("Join waitlist is one column and its target is at least 44px", async () => {

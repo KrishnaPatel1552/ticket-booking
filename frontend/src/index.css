@@ -868,7 +868,7 @@ button.seat:disabled {
   color: #7dd3fc;
 }
 
-.events-screen .hold-screen ul {
+.events-screen .hold-screen > ul:not(.price-lines) {
   padding-left: 1.1rem;
 }
 

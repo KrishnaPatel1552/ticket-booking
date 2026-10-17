@@ -405,12 +405,21 @@ export default function App() {
     );
   }
 
-  function openOfferedHold() {
-    if (offeredHolds.length === 0) {
+  async function openOfferedHold() {
+    if (offeredHolds.length === 0 || waitlist?.orderId == null) {
       return;
     }
+    const orderId = waitlist.orderId;
+    const details = await loadHoldDetails(orderId);
+    setSaleTerms(details.terms);
+    setPriorTickets(details.tickets);
+    setPromoCode(null);
+    setPromoDraft("");
+    setPromoError(null);
     setConfirmedHold({
+      orderId,
       labels: offeredHolds.map((hold) => hold.label),
+      seatIds: offeredHolds.map((hold) => hold.seatId),
       heldUntil: offeredHolds[0].heldUntil,
     });
   }
@@ -428,23 +437,9 @@ export default function App() {
     setHoldError(null);
     try {
       const held = await holdSeats(eventId, seatsToHold);
-      let terms: SaleTermsView | null = null;
-      try {
-        terms = await fetchSaleTerms();
-      } catch {
-        terms = null;
-      }
-      let tickets: TicketView[] = [];
-      try {
-        const order = await fetchOrder(held.orderId);
-        if (order != null && order.tickets.length > 0) {
-          tickets = order.tickets;
-        }
-      } catch {
-        tickets = [];
-      }
-      setSaleTerms(terms);
-      setPriorTickets(tickets);
+      const details = await loadHoldDetails(held.orderId);
+      setSaleTerms(details.terms);
+      setPriorTickets(details.tickets);
       setPromoCode(null);
       setPromoDraft("");
       setPromoError(null);
@@ -461,6 +456,25 @@ export default function App() {
     } finally {
       setHolding(false);
     }
+  }
+
+  async function loadHoldDetails(orderId: number): Promise<{ terms: SaleTermsView | null; tickets: TicketView[] }> {
+    let terms: SaleTermsView | null = null;
+    try {
+      terms = await fetchSaleTerms();
+    } catch {
+      terms = null;
+    }
+    let tickets: TicketView[] = [];
+    try {
+      const order = await fetchOrder(orderId);
+      if (order != null && order.tickets.length > 0) {
+        tickets = order.tickets;
+      }
+    } catch {
+      tickets = [];
+    }
+    return { terms, tickets };
   }
 
   function leaveHold() {
@@ -701,7 +715,7 @@ export default function App() {
                   href="#hold"
                   onClick={(event) => {
                     event.preventDefault();
-                    openOfferedHold();
+                    return openOfferedHold();
                   }}
                 >
                   Held for you: {offeredHolds.map((hold) => hold.label).join(", ")}
