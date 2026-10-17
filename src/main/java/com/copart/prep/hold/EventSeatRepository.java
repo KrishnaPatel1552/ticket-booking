@@ -28,6 +28,10 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
             """)
     List<EventSeat> findActiveWaitlistHolds(@Param("customerId") long customerId, @Param("eventId") long eventId);
 
+    long countByEventIdAndActiveTrueAndKind(Long eventId, EventSeatKind kind);
+
+    long countByEventIdAndKind(Long eventId, EventSeatKind kind);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select claim
