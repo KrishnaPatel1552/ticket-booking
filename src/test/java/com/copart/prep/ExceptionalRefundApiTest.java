@@ -67,6 +67,57 @@ class ExceptionalRefundApiTest {
         assertThat(entries.getBody().get(0).get("seatId").isNull()).isTrue();
     }
 
+    @Test
+    void aCustomerIsRefusedAnExceptionalRefund() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-12-14T01:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        long orderId = holdAndCheckout(ada, eventId, List.of(a1));
+
+        ResponseEntity<JsonNode> refused = ada.post(
+                "/api/admin/orders/" + orderId + "/exceptional-refunds",
+                java.util.Map.of("amountCents", 42, "reason", "I want my money", "mock", "success"));
+
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        JsonNode order = ada.get("/api/orders/" + orderId).getBody();
+        assertThat(order.get("refunds")).isEmpty();
+        assertThat(order.get("payment").get("amountCents").asInt()).isEqualTo(5100);
+        assertThat(ticketLabels(order)).containsExactly("A1");
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("ticket");
+        assertThat(admin.get("/api/admin/events/" + eventId + "/audit-entries").getBody()).isEmpty();
+    }
+
+    @Test
+    void anExceptionalRefundWithoutAReasonIsRefused() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-12-14T01:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        long orderId = holdAndCheckout(ada, eventId, List.of(a1));
+        String path = "/api/admin/orders/" + orderId + "/exceptional-refunds";
+
+        assertThat(admin.post(path, java.util.Map.of("amountCents", 42, "reason", "", "mock", "success"))
+                .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(admin.post(path, java.util.Map.of("amountCents", 42, "reason", "   ", "mock", "success"))
+                .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(admin.post(path, java.util.Map.of("amountCents", 42, "mock", "success"))
+                .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        JsonNode order = ada.get("/api/orders/" + orderId).getBody();
+        assertThat(order.get("refunds")).isEmpty();
+        assertThat(order.get("payment").get("amountCents").asInt()).isEqualTo(5100);
+        assertThat(ticketLabels(order)).containsExactly("A1");
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("ticket");
+        assertThat(admin.get("/api/admin/events/" + eventId + "/audit-entries").getBody()).isEmpty();
+    }
+
     private long holdAndCheckout(ApiSession customer, long eventId, List<Long> seatIds) {
         ResponseEntity<JsonNode> held = customer.post("/api/events/" + eventId + "/holds", java.util.Map.of(
                 "seatIds", seatIds));

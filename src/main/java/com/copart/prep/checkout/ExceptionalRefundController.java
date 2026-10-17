@@ -1,5 +1,6 @@
 package com.copart.prep.checkout;
 
+import jakarta.validation.Valid;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,7 +19,7 @@ public class ExceptionalRefundController {
     }
 
     @PostMapping("/api/admin/orders/{orderId}/exceptional-refunds")
-    public OrderView issue(@PathVariable long orderId, @RequestBody ExceptionalRefundRequest request) {
+    public OrderView issue(@PathVariable long orderId, @Valid @RequestBody ExceptionalRefundRequest request) {
         refundScript.scriptRefund(PaymentMockResult.fromWire(request.mock()));
         return issueExceptionalRefund.submit(orderId, request.amountCents(), request.reason(), signedInEmail());
     }

@@ -1,4 +1,7 @@
 package com.copart.prep.checkout;
 
-public record ExceptionalRefundRequest(int amountCents, String reason, String mock) {
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+
+public record ExceptionalRefundRequest(@NotNull Integer amountCents, @NotBlank String reason, @NotNull String mock) {
 }
