@@ -49,7 +49,7 @@ public class CheckoutController {
 
     @PostMapping("/api/orders/{orderId}/checkout")
     public OrderView checkout(@PathVariable long orderId, @Valid @RequestBody CheckoutRequest request) {
-        script.scriptCharge(PaymentMockResult.fromWire(request.mock()));
+        script.scriptPay(PaymentMockResult.fromWire(request.mock()));
         return checkout.submit(orderId, request.seatIds(), signedInEmail());
     }
 

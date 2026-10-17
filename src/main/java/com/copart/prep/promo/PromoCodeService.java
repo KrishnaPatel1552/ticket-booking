@@ -22,7 +22,7 @@ public class PromoCodeService {
         }
         PromoCode saved = promoCodes.save(new PromoCode(
                 code,
-                request.discountCents(),
+                request.amountCents(),
                 request.globalLimit(),
                 request.perCustomerLimit(),
                 request.exclusive()));
@@ -33,7 +33,7 @@ public class PromoCodeService {
         return new PromoCodeView(
                 promoCode.getId(),
                 promoCode.getCode(),
-                promoCode.getDiscountCents(),
+                promoCode.getAmountCents(),
                 promoCode.getGlobalLimit(),
                 promoCode.getPerCustomerLimit(),
                 promoCode.isExclusive());

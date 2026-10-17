@@ -90,10 +90,10 @@ public class RecordPendingPayment {
         for (EventSeat hold : pricedHolds) {
             prices.add(startingPriceCents(hold, now, exclusive));
         }
-        int groupDiscount = exclusive ? 0 : groupDiscountCents(terms, prices);
-        int promoDiscount = promoDiscountCents(applied, prices, groupDiscount);
-        assignShares(pricedHolds, prices, groupDiscount, promoDiscount, terms.getServiceFeeCents());
-        int amount = OrderAmount.cents(terms.getServiceFeeCents(), prices) - groupDiscount - promoDiscount;
+        int groupRate = exclusive ? 0 : groupRateCents(terms, prices);
+        int promoAmount = promoAmountCents(applied, prices, groupRate);
+        assignShares(pricedHolds, prices, groupRate, promoAmount, terms.getServiceFeeCents());
+        int amount = OrderAmount.cents(terms.getServiceFeeCents(), prices) - groupRate - promoAmount;
         order.closeForHolds();
         Payment payment = payments.save(new Payment(order, amount, PaymentStatus.PENDING, now, applied));
         entityManager.flush();
@@ -103,8 +103,8 @@ public class RecordPendingPayment {
     private static void assignShares(
             List<EventSeat> holds,
             List<Integer> startingPrices,
-            int groupDiscount,
-            int promoDiscount,
+            int groupRate,
+            int promoAmount,
             int serviceFeeCents) {
         int count = holds.size();
         int[] weights = new int[count];
@@ -116,11 +116,11 @@ public class RecordPendingPayment {
             ticketIds[index] = holds.get(index).getId();
             equal[index] = 1;
         }
-        int[] groupShares = CentShares.split(groupDiscount, weights, ticketIds);
+        int[] groupShares = CentShares.split(groupRate, weights, ticketIds);
         for (int index = 0; index < count; index++) {
             afterGroup[index] = weights[index] - groupShares[index];
         }
-        int[] promoShares = CentShares.split(promoDiscount, afterGroup, ticketIds);
+        int[] promoShares = CentShares.split(promoAmount, afterGroup, ticketIds);
         int[] feeShares = CentShares.split(serviceFeeCents, equal, ticketIds);
         for (int index = 0; index < count; index++) {
             holds.get(index).assignShares(weights[index], groupShares[index], promoShares[index], feeShares[index]);
@@ -172,7 +172,7 @@ public class RecordPendingPayment {
         return tier.getPriceCents();
     }
 
-    private static int groupDiscountCents(SaleTerms terms, List<Integer> startingPrices) {
+    private static int groupRateCents(SaleTerms terms, List<Integer> startingPrices) {
         if (startingPrices.size() < terms.getGroupRateThreshold()) {
             return 0;
         }
@@ -183,7 +183,7 @@ public class RecordPendingPayment {
         return Math.min(terms.getGroupRateAmountCents(), ticketTotal);
     }
 
-    private static int promoDiscountCents(PromoCode promoCode, List<Integer> startingPrices, int groupDiscount) {
+    private static int promoAmountCents(PromoCode promoCode, List<Integer> startingPrices, int groupRate) {
         if (promoCode == null) {
             return 0;
         }
@@ -191,8 +191,8 @@ public class RecordPendingPayment {
         for (int startingPrice : startingPrices) {
             afterGroup += startingPrice;
         }
-        afterGroup -= groupDiscount;
-        return Math.min(promoCode.getDiscountCents(), Math.max(afterGroup, 0));
+        afterGroup -= groupRate;
+        return Math.min(promoCode.getAmountCents(), Math.max(afterGroup, 0));
     }
 
     private SaleTerms saleTerms() {

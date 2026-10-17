@@ -34,7 +34,7 @@ public class PausingPaymentAttemptGate implements PaymentAttemptGate {
     }
 
     @Override
-    public void beforeCharge() {
+    public void beforePay() {
         if (!armed.get()) {
             return;
         }

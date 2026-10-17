@@ -6,7 +6,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 
 public record CreatePromoCodeRequest(
         @NotBlank String code,
-        @NotNull @PositiveOrZero Integer discountCents,
+        @NotNull @PositiveOrZero Integer amountCents,
         @NotNull @PositiveOrZero Integer globalLimit,
         @NotNull @PositiveOrZero Integer perCustomerLimit,
         @NotNull Boolean exclusive) {

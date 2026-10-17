@@ -10,11 +10,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class EventCancellationController {
 
-    private final CancelEvent cancelEvent;
+    private final EventCancellation eventCancellation;
     private final RefundScript refundScript;
 
-    public EventCancellationController(CancelEvent cancelEvent, RefundScript refundScript) {
-        this.cancelEvent = cancelEvent;
+    public EventCancellationController(EventCancellation eventCancellation, RefundScript refundScript) {
+        this.eventCancellation = eventCancellation;
         this.refundScript = refundScript;
     }
 
@@ -24,7 +24,7 @@ public class EventCancellationController {
         if (request.lookup() != null) {
             refundScript.scriptLookup(PaymentMockResult.fromWire(request.lookup()));
         }
-        cancelEvent.submit(eventId, request.reason(), signedInEmail());
+        eventCancellation.submit(eventId, request.reason(), signedInEmail());
     }
 
     private static String signedInEmail() {

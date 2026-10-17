@@ -19,7 +19,7 @@ public class PromoCode {
     private String code;
 
     @Column(nullable = false)
-    private int discountCents;
+    private int amountCents;
 
     @Column(nullable = false)
     private int globalLimit;
@@ -33,9 +33,9 @@ public class PromoCode {
     protected PromoCode() {
     }
 
-    public PromoCode(String code, int discountCents, int globalLimit, int perCustomerLimit, boolean exclusive) {
+    public PromoCode(String code, int amountCents, int globalLimit, int perCustomerLimit, boolean exclusive) {
         this.code = code;
-        this.discountCents = discountCents;
+        this.amountCents = amountCents;
         this.globalLimit = globalLimit;
         this.perCustomerLimit = perCustomerLimit;
         this.exclusive = exclusive;
@@ -49,8 +49,8 @@ public class PromoCode {
         return code;
     }
 
-    public int getDiscountCents() {
-        return discountCents;
+    public int getAmountCents() {
+        return amountCents;
     }
 
     public int getGlobalLimit() {

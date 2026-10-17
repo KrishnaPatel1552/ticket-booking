@@ -14,9 +14,9 @@ public class CallerScriptedPaymentGateway implements PaymentGateway {
     }
 
     @Override
-    public PaymentMockResult charge(long paymentId) {
-        attemptGate.beforeCharge();
-        return script.chargeOnce();
+    public PaymentMockResult pay(long paymentId) {
+        attemptGate.beforePay();
+        return script.payOnce();
     }
 
     @Override

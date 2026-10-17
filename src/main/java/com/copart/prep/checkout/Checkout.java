@@ -24,7 +24,7 @@ public class Checkout {
 
     public OrderView submit(long orderId, List<Long> seatIds, String email) {
         long paymentId = recordPendingPayment.record(orderId, seatIds, email);
-        PaymentMockResult result = paymentGateway.charge(paymentId);
+        PaymentMockResult result = paymentGateway.pay(paymentId);
         finishPayment.apply(paymentId, seatIds, result);
         return orders.open(orderId, email);
     }

@@ -135,14 +135,14 @@ class PriceApiTest {
         String code = "SAVE100-" + UUID.randomUUID();
         ResponseEntity<JsonNode> created = admin.post("/api/admin/promo-codes", java.util.Map.of(
                 "code", code,
-                "discountCents", 100,
+                "amountCents", 100,
                 "globalLimit", 5,
                 "perCustomerLimit", 1,
                 "exclusive", false));
 
         assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(created.getBody().get("code").asText()).isEqualTo(code);
-        assertThat(created.getBody().get("discountCents").asInt()).isEqualTo(100);
+        assertThat(created.getBody().get("amountCents").asInt()).isEqualTo(100);
         assertThat(created.getBody().get("globalLimit").asInt()).isEqualTo(5);
         assertThat(created.getBody().get("perCustomerLimit").asInt()).isEqualTo(1);
         assertThat(created.getBody().get("exclusive").asBoolean()).isFalse();
@@ -150,7 +150,7 @@ class PriceApiTest {
         ApiSession ada = signIn("ada@example.com");
         ResponseEntity<JsonNode> refused = ada.post("/api/admin/promo-codes", java.util.Map.of(
                 "code", "NOPE-" + UUID.randomUUID(),
-                "discountCents", 50,
+                "amountCents", 50,
                 "globalLimit", 1,
                 "perCustomerLimit", 1,
                 "exclusive", true));
@@ -617,11 +617,11 @@ class PriceApiTest {
         return customer.get("/api/orders/" + orderId).getBody().get("payment").get("amountCents").asInt();
     }
 
-    private String createPromo(ApiSession admin, int discountCents, int globalLimit, int perCustomerLimit, boolean exclusive) {
+    private String createPromo(ApiSession admin, int amountCents, int globalLimit, int perCustomerLimit, boolean exclusive) {
         String code = "PROMO-" + UUID.randomUUID();
         ResponseEntity<JsonNode> created = admin.post("/api/admin/promo-codes", java.util.Map.of(
                 "code", code,
-                "discountCents", discountCents,
+                "amountCents", amountCents,
                 "globalLimit", globalLimit,
                 "perCustomerLimit", perCustomerLimit,
                 "exclusive", exclusive));

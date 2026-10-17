@@ -4,14 +4,14 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 @Service
-public class CancelEvent {
+public class EventCancellation {
 
     private final RecordEventCancellation recordEventCancellation;
     private final RecordEventCancellationRefund recordEventCancellationRefund;
     private final RefundGateway refundGateway;
     private final FinishRefund finishRefund;
 
-    public CancelEvent(
+    public EventCancellation(
             RecordEventCancellation recordEventCancellation,
             RecordEventCancellationRefund recordEventCancellationRefund,
             RefundGateway refundGateway,

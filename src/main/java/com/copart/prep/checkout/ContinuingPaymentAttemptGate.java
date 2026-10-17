@@ -8,6 +8,6 @@ import org.springframework.stereotype.Component;
 public class ContinuingPaymentAttemptGate implements PaymentAttemptGate {
 
     @Override
-    public void beforeCharge() {
+    public void beforePay() {
     }
 }

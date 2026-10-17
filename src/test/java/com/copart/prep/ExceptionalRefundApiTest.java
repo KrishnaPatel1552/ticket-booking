@@ -394,11 +394,11 @@ class ExceptionalRefundApiTest {
         assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("free");
     }
 
-    private String createPromo(ApiSession admin, int discountCents) {
+    private String createPromo(ApiSession admin, int amountCents) {
         String code = "EXCEPT-" + UUID.randomUUID();
         ResponseEntity<JsonNode> created = admin.post("/api/admin/promo-codes", java.util.Map.of(
                 "code", code,
-                "discountCents", discountCents,
+                "amountCents", amountCents,
                 "globalLimit", 1,
                 "perCustomerLimit", 1,
                 "exclusive", false));

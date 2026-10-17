@@ -9,24 +9,24 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestScope
 public class PaymentScript {
 
-    private PaymentMockResult charge;
+    private PaymentMockResult pay;
     private PaymentMockResult lookup;
-    private boolean charged;
+    private boolean paid;
 
-    public void scriptCharge(PaymentMockResult result) {
-        this.charge = result;
+    public void scriptPay(PaymentMockResult result) {
+        this.pay = result;
     }
 
     public void scriptLookup(PaymentMockResult result) {
         this.lookup = result;
     }
 
-    public PaymentMockResult chargeOnce() {
-        if (charged || charge == null) {
+    public PaymentMockResult payOnce() {
+        if (paid || pay == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
-        charged = true;
-        return charge;
+        paid = true;
+        return pay;
     }
 
     public PaymentMockResult lookupOnce() {
