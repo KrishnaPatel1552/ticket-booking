@@ -6,6 +6,7 @@ import com.copart.prep.hold.EventSeatRepository;
 import com.copart.prep.payment.Payment;
 import com.copart.prep.payment.PaymentRepository;
 import com.copart.prep.payment.PaymentStatus;
+import com.copart.prep.waitlist.OfferWaitlist;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -18,10 +19,12 @@ public class FinishPayment {
 
     private final PaymentRepository payments;
     private final EventSeatRepository eventSeats;
+    private final OfferWaitlist offerWaitlist;
 
-    public FinishPayment(PaymentRepository payments, EventSeatRepository eventSeats) {
+    public FinishPayment(PaymentRepository payments, EventSeatRepository eventSeats, OfferWaitlist offerWaitlist) {
         this.payments = payments;
         this.eventSeats = eventSeats;
+        this.offerWaitlist = offerWaitlist;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -60,9 +63,11 @@ public class FinishPayment {
 
     private void releaseSeats(Payment payment) {
         payment.mark(PaymentStatus.DECLINED);
-        for (EventSeat claim : eventSeats.lockActiveOnOrder(payment.getOrder().getId())) {
+        List<EventSeat> claims = eventSeats.lockActiveOnOrder(payment.getOrder().getId());
+        for (EventSeat claim : claims) {
             claim.release();
         }
+        offerWaitlist.offer(payment.getOrder().getEvent().getId(), claims);
     }
 
     private void succeed(Payment payment, List<Long> seatIds) {
@@ -85,5 +90,6 @@ public class FinishPayment {
         for (EventSeat hold : holds) {
             hold.release();
         }
+        offerWaitlist.offer(payment.getOrder().getEvent().getId(), holds);
     }
 }
