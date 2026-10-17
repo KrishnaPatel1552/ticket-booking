@@ -1,6 +1,8 @@
 package com.copart.prep.hold;
 
 import com.copart.prep.clock.AppClock;
+import com.copart.prep.waitlist.OfferWaitlist;
+import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -10,16 +12,20 @@ public class ExpiredHoldRelease {
 
     private final EventSeatRepository eventSeats;
     private final AppClock clock;
+    private final OfferWaitlist offerWaitlist;
 
-    public ExpiredHoldRelease(EventSeatRepository eventSeats, AppClock clock) {
+    public ExpiredHoldRelease(EventSeatRepository eventSeats, AppClock clock, OfferWaitlist offerWaitlist) {
         this.eventSeats = eventSeats;
         this.clock = clock;
+        this.offerWaitlist = offerWaitlist;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public void release(long eventId) {
-        for (EventSeat claim : eventSeats.lockExpiredHolds(eventId, EventSeatKind.HOLD, clock.now())) {
+        List<EventSeat> expired = eventSeats.lockExpiredHolds(eventId, EventSeatKind.HOLD, clock.now());
+        for (EventSeat claim : expired) {
             claim.release();
         }
+        offerWaitlist.offer(eventId, expired);
     }
 }

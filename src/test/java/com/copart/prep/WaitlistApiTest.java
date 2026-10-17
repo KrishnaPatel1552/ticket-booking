@@ -237,6 +237,36 @@ class WaitlistApiTest {
         assertThat(holdLabeled(offer, "A12").get("heldUntil").asText()).isEqualTo("2026-10-16T18:45:00Z");
     }
 
+    @Test
+    void openingTheEventOffersAnExpiredHoldWithNoPaymentToTheWaitlist() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T19:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        sell(ada, eventId, opened, List.of("A1", "A2", "A3", "A4", "A5", "A6"));
+        sell(ada, eventId, opened, List.of("A7", "A8", "A9", "A10"));
+        hold(ada, eventId, opened, List.of("A11", "A12"));
+        sell(grace, eventId, opened, List.of("B1", "B2", "B3", "B4", "B5", "B6"));
+        sell(grace, eventId, opened, List.of("B7", "B8"));
+        assertThat(grace.post("/api/events/" + eventId + "/waitlist", java.util.Map.of()).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T19:10:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        JsonNode map = grace.get("/api/events/" + eventId).getBody();
+
+        assertThat(seatState(map, "A11")).isEqualTo("held");
+        assertThat(seatState(map, "A12")).isEqualTo("held");
+        assertThat(seatState(map, "A1")).isEqualTo("ticket");
+        JsonNode offer = grace.get("/api/orders/" + grace.get("/api/events/" + eventId + "/waitlist")
+                .getBody().get("orderId").asLong()).getBody();
+        assertThat(holdLabeled(offer, "A11").get("heldUntil").asText()).isEqualTo("2026-10-16T19:25:00Z");
+        assertThat(holdLabeled(offer, "A12").get("heldUntil").asText()).isEqualTo("2026-10-16T19:25:00Z");
+    }
+
     private static JsonNode holdLabeled(JsonNode order, String label) {
         for (JsonNode hold : order.path("holds")) {
             if (label.equals(hold.path("label").asText())) {
