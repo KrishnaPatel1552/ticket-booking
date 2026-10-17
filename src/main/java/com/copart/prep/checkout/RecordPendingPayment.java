@@ -70,6 +70,9 @@ public class RecordPendingPayment {
         if (!order.getCustomer().getId().equals(customer.getId())) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
+        if (order.getEvent().isCancelled()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT);
+        }
         if (payments.existsForOrder(orderId) || seatIds.size() != new HashSet<>(seatIds).size()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }

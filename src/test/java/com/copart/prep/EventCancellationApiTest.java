@@ -626,6 +626,34 @@ class EventCancellationApiTest {
         assertThat(refundAmounts(adaOrder)).contains(3915, 20);
     }
 
+    @Test
+    void aCancelledEventRefusesCheckoutAndWritesNoPayment() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin, "2026-12-15T01:00:00Z");
+        ApiSession ada = signIn("ada@example.com");
+        assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T15:00:00Z")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(a1)));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+        assertThat(admin.post("/api/admin/events/" + eventId + "/cancellation", java.util.Map.of(
+                "reason", "The artist is ill",
+                "mock", "success")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<JsonNode> checkedOut = ada.post("/api/orders/" + orderId + "/checkout", java.util.Map.of(
+                "seatIds", List.of(a1),
+                "mock", "success"));
+
+        assertThat(checkedOut.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode order = ada.get("/api/orders/" + orderId).getBody();
+        assertThat(order.get("payment").isNull()).isTrue();
+        assertThat(ticketLabels(order)).isEmpty();
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("held");
+    }
+
     private long sell(ApiSession customer, long eventId, JsonNode map, List<String> labels) {
         List<Long> seatIds = new ArrayList<>();
         for (String label : labels) {
