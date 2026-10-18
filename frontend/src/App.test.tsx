@@ -62,10 +62,11 @@ test("a successful sign-in opens the events screen", async () => {
   expect(screen.queryByText("That email and password did not sign you in.")).toBeNull();
 });
 
-test("the signed-out screen is the Harbor Hall sign-in card", () => {
+test("the signed-out screen is the ticket booking system sign-in card", () => {
   render(<App />);
 
-  expect(screen.getByText("Harbor Hall")).toBeTruthy();
+  expect(screen.getByText("Ticket booking system")).toBeTruthy();
+  expect(screen.queryByText("Harbor Hall")).toBeNull();
   expect(screen.getByLabelText("Email")).toBeTruthy();
   expect(screen.getByLabelText("Password")).toBeTruthy();
   expect(screen.getAllByRole("button")).toHaveLength(1);

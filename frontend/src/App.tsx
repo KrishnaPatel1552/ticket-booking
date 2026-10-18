@@ -934,7 +934,7 @@ export default function App() {
     return (
       <main className="sign-in-screen">
         <form className="sign-in-card" onSubmit={submitSignIn}>
-          <p className="sign-in-venue">Harbor Hall</p>
+          <p className="sign-in-product">Ticket booking system</p>
           <h1>Sign in</h1>
           <label>
             Email
