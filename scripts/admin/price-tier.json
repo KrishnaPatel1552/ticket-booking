@@ -1,0 +1,7 @@
+{
+  "action": "price-tier",
+  "name": "Demo Tier",
+  "venue": "Harbor Hall",
+  "priceCents": 7500,
+  "earlyBirdPriceCents": 6000
+}

@@ -223,6 +223,7 @@ type ActiveHoldState = {
   labels: string[];
   seatIds: number[];
   heldUntil: string;
+  paymentStatus?: PaymentStatus | null;
 };
 
 export default function App() {
@@ -247,7 +248,8 @@ export default function App() {
   const [activeHold, setActiveHold] = useState<ActiveHoldState | null>(null);
   const [saleTerms, setSaleTerms] = useState<SaleTermsView | null>(null);
   const [priceUnavailable, setPriceUnavailable] = useState(false);
-  const [earlierOrder, setEarlierOrder] = useState<OrderView | null>(null);
+  const [paidOrders, setPaidOrders] = useState<OrderView[]>([]);
+  const [ticketsOpen, setTicketsOpen] = useState(false);
   const [promoCode, setPromoCode] = useState<string | null>(null);
   const [promoAmountCents, setPromoAmountCents] = useState<number | null>(null);
   const [promoExclusive, setPromoExclusive] = useState<boolean | null>(null);
@@ -257,7 +259,6 @@ export default function App() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [paymentMock, setPaymentMock] = useState<PaymentMock | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus | null>(null);
-  const [paidOrder, setPaidOrder] = useState<OrderView | null>(null);
   const [ticketIdsToCancel, setTicketIdsToCancel] = useState<number[]>([]);
   const [refundMock, setRefundMock] = useState<PaymentMock | null>(null);
   const [refundScript, setRefundScript] = useState<PaymentMock | null>(null);
@@ -311,6 +312,7 @@ export default function App() {
             labels: order.holds.map((hold) => hold.label),
             seatIds: order.holds.map((hold) => hold.seatId),
             heldUntil: order.holds[0].heldUntil,
+            paymentStatus: order.payment?.status ?? null,
           });
           setPromoCode(order.promoCode);
           setPromoAmountCents(order.promoAmountCents ?? null);
@@ -324,17 +326,35 @@ export default function App() {
     } else {
       setActiveHold(null);
     }
-    if (map.paidOrderIds != null && map.paidOrderIds.length > 0) {
-      const latestPaidId = map.paidOrderIds[map.paidOrderIds.length - 1];
-      try {
-        const paid = await api.fetchOrder(latestPaidId);
-        if (paid != null && paid.tickets.length > 0) {
-          setEarlierOrder(paid);
-        }
-      } catch {
-        // Keep existing earlierOrder state if lookup fails
-      }
+    if (map.paidOrderIds == null) {
+      return;
     }
+    const paidIds = map.paidOrderIds;
+    if (paidIds.length === 0) {
+      setPaidOrders([]);
+      return;
+    }
+    const loaded = await Promise.all(
+      paidIds.map(async (orderId) => {
+        try {
+          return await api.fetchOrder(orderId);
+        } catch {
+          return null;
+        }
+      }),
+    );
+    setPaidOrders(
+      loaded
+        .filter((order): order is OrderView => order != null && order.tickets.length > 0)
+        .sort((left, right) => left.id - right.id),
+    );
+  }
+
+  function storePaidOrder(order: OrderView) {
+    setPaidOrders((current) => {
+      const rest = current.filter((item) => item.id !== order.id);
+      return [...rest, order].sort((left, right) => left.id - right.id);
+    });
   }
 
   async function loadWaitlist(eventId: number) {
@@ -419,7 +439,8 @@ export default function App() {
     setActiveHold(null);
     setSaleTerms(null);
     setPriceUnavailable(false);
-    setEarlierOrder(null);
+    setPaidOrders([]);
+    setTicketsOpen(false);
     setPromoCode(null);
     setPromoAmountCents(null);
     setPromoExclusive(null);
@@ -428,7 +449,7 @@ export default function App() {
     setCheckoutOpen(false);
     setPaymentMock(null);
     setPaymentStatus(null);
-    setPaidOrder(null);
+    setTicketsOpen(false);
     setTicketIdsToCancel([]);
     setRefundMock(null);
     setRefundScript(null);
@@ -453,7 +474,8 @@ export default function App() {
     setCheckoutOpen(false);
     setPaymentMock(null);
     setPaymentStatus(null);
-    setPaidOrder(null);
+    setPaidOrders([]);
+    setTicketsOpen(false);
     setTicketIdsToCancel([]);
     setRefundMock(null);
     setRefundScript(null);
@@ -527,7 +549,7 @@ export default function App() {
       setSaleTerms(await loadSaleTerms());
     }
     setConfirmedHold(activeHold);
-    setPaymentStatus(null);
+    setPaymentStatus(activeHold.paymentStatus ?? null);
     setCheckoutError(null);
     setCheckoutOpen(true);
   }
@@ -595,7 +617,11 @@ export default function App() {
         await loadSeatMap(eventId);
       }
     } catch {
-      setHoldError("Those seats could not be released.");
+      if (target.paymentStatus === "unknown" || target.paymentStatus === "pending") {
+        setHoldError("Those seats could not be released while payment is unresolved. Reconcile payment on Check out first.");
+      } else {
+        setHoldError("Those seats could not be released.");
+      }
     } finally {
       setReleasing(false);
     }
@@ -613,10 +639,10 @@ export default function App() {
   }
 
   function openEarlierTickets() {
-    if (earlierOrder == null || earlierOrder.tickets.length === 0) {
+    if (!paidOrders.some((order) => order.tickets.length > 0)) {
       return;
     }
-    setPaidOrder(earlierOrder);
+    setTicketsOpen(true);
     setTicketIdsToCancel([]);
     setRefundMock(null);
     setRefundScript(null);
@@ -625,7 +651,7 @@ export default function App() {
   }
 
   function closeTickets() {
-    setPaidOrder(null);
+    setTicketsOpen(false);
     setTicketIdsToCancel([]);
     setRefundMock(null);
     setRefundScript(null);
@@ -633,7 +659,29 @@ export default function App() {
     setCancelError(null);
   }
 
-  function backToSeatMap() {
+  function markBookedSeats(seatIds: number[]) {
+    const booked = new Set(seatIds);
+    setSeatMap((current) => {
+      if (current == null) {
+        return current;
+      }
+      return {
+        ...current,
+        sections: current.sections.map((section) => ({
+          ...section,
+          seats: section.seats.map((seat) =>
+            booked.has(seat.id) ? { ...seat, state: "ticket", yours: true } : seat,
+          ),
+        })),
+      };
+    });
+  }
+
+  async function backToSeatMap() {
+    const eventId = seatMap?.id ?? openEventId;
+    if (eventId != null) {
+      await loadSeatMap(eventId);
+    }
     closeTickets();
     setConfirmedHold(null);
     setCheckoutOpen(false);
@@ -651,7 +699,7 @@ export default function App() {
     setCheckoutOpen(false);
     setPaymentMock(null);
     setPaymentStatus(null);
-    setPaidOrder(null);
+    setTicketsOpen(false);
     setTicketIdsToCancel([]);
     setRefundMock(null);
     setRefundScript(null);
@@ -676,9 +724,12 @@ export default function App() {
       await api.checkout(orderId, seatIds, mock);
       const order = await api.fetchOrder(orderId);
       const status = order.payment?.status ?? null;
-      setEarlierOrder(status === "succeeded" && order.tickets.length > 0 ? order : null);
+      if (status === "succeeded" && order.tickets.length > 0) {
+        storePaidOrder(order);
+      }
       if (status === "succeeded") {
-        setPaidOrder(order);
+        markBookedSeats(seatIds);
+        setTicketsOpen(true);
         setConfirmedHold(null);
         setActiveHold(null);
         setTicketIdsToCancel([]);
@@ -696,6 +747,9 @@ export default function App() {
         if (eventId != null) {
           await loadSeatMap(eventId);
         }
+      } else {
+        setConfirmedHold((current) => (current == null ? null : { ...current, paymentStatus: status }));
+        setActiveHold((current) => (current == null ? null : { ...current, paymentStatus: status }));
       }
     } catch {
       setCheckoutError("Checkout did not complete.");
@@ -712,9 +766,12 @@ export default function App() {
     try {
       const order = await api.reconcilePayment(orderId, paymentMock);
       const status = order.payment?.status ?? null;
-      setEarlierOrder(status === "succeeded" && order.tickets.length > 0 ? order : null);
+      if (status === "succeeded" && order.tickets.length > 0) {
+        storePaidOrder(order);
+      }
       if (status === "succeeded") {
-        setPaidOrder(order);
+        markBookedSeats(order.tickets.map((ticket) => ticket.seatId));
+        setTicketsOpen(true);
         setConfirmedHold(null);
         setActiveHold(null);
         setTicketIdsToCancel([]);
@@ -732,6 +789,9 @@ export default function App() {
         if (eventId != null) {
           await loadSeatMap(eventId);
         }
+      } else {
+        setConfirmedHold((current) => (current == null ? null : { ...current, paymentStatus: status }));
+        setActiveHold((current) => (current == null ? null : { ...current, paymentStatus: status }));
       }
     } catch {
       setCheckoutError("Payment lookup did not complete.");
@@ -745,50 +805,61 @@ export default function App() {
   }
 
   async function submitCancel() {
-    if (paidOrder == null || refundMock == null || ticketIdsToCancel.length === 0) {
+    if (refundMock == null || ticketIdsToCancel.length === 0) {
       return;
     }
-    const orderId = paidOrder.id;
-    const seatIds = paidOrder.tickets
-      .map((ticket) => ticket.seatId)
-      .filter((seatId) => ticketIdsToCancel.includes(seatId));
+    const selections = paidOrders
+      .map((order) => ({
+        orderId: order.id,
+        seatIds: order.tickets.map((ticket) => ticket.seatId).filter((seatId) => ticketIdsToCancel.includes(seatId)),
+      }))
+      .filter((selection) => selection.seatIds.length > 0);
+    if (selections.length === 0) {
+      return;
+    }
     const mock = refundMock;
     setCancelError(null);
     try {
-      const order = await api.cancelTickets(orderId, seatIds, mock);
-      const latestRefund = order.refunds[order.refunds.length - 1];
-      setPaidOrder(order);
-      setEarlierOrder((current) => {
-        if (current == null || current.id !== order.id) {
-          return current;
+      let latestRefundAmount: number | null = null;
+      for (const selection of selections) {
+        const order = await api.cancelTickets(selection.orderId, selection.seatIds, mock);
+        storePaidOrder(order);
+        const latestRefund = order.refunds[order.refunds.length - 1];
+        if (latestRefund != null) {
+          latestRefundAmount = latestRefund.amountCents;
         }
-        return order.tickets.length > 0 ? order : null;
-      });
+      }
       setTicketIdsToCancel([]);
       setRefundScript(mock);
-      setRefundAmountCents(latestRefund == null ? null : latestRefund.amountCents);
+      setRefundAmountCents(latestRefundAmount);
     } catch {
       setCancelError("Those tickets could not be cancelled.");
     }
   }
 
   async function submitReconcileRefund() {
-    if (paidOrder == null || refundMock == null || typeof api.reconcileRefund !== "function") {
+    if (refundMock == null || typeof api.reconcileRefund !== "function") {
+      return;
+    }
+    const unresolved = paidOrders.filter((order) =>
+      order.refunds.some((refund) => refund.status === "unknown" || refund.status === "pending"),
+    );
+    if (unresolved.length === 0) {
       return;
     }
     setCancelError(null);
     try {
-      const order = await api.reconcileRefund(paidOrder.id, refundMock);
-      const latestRefund = order.refunds[order.refunds.length - 1];
-      setPaidOrder(order);
-      setEarlierOrder((current) => {
-        if (current == null || current.id !== order.id) {
-          return current;
+      let latestRefundAmount: number | null = null;
+      for (const current of unresolved) {
+        const order = await api.reconcileRefund(current.id, refundMock);
+        storePaidOrder(order);
+        const latestRefund = order.refunds[order.refunds.length - 1];
+        if (latestRefund != null) {
+          latestRefundAmount = latestRefund.amountCents;
         }
-        return order.tickets.length > 0 ? order : null;
-      });
+      }
       setRefundScript(refundMock);
-      setRefundAmountCents(latestRefund == null ? null : latestRefund.amountCents);
+      setRefundAmountCents(latestRefundAmount);
     } catch {
       setCancelError("Refund lookup did not complete.");
     }
@@ -853,8 +924,11 @@ export default function App() {
     waitlist == null &&
     offeredHolds.length === 0 &&
     seatMap.sections.every((section) => section.seats.every((seat) => seat.state !== "free"));
-  const hasUnresolvedRefund =
-    paidOrder?.refunds.some((refund) => refund.status === "unknown" || refund.status === "pending") ?? false;
+  const ticketLinkLabels = paidOrders.flatMap((order) => order.tickets.map((ticket) => ticket.label)).join(", ");
+  const visiblePaidOrders = paidOrders.filter((order) => order.payment != null);
+  const hasUnresolvedRefund = visiblePaidOrders.some((order) =>
+    order.refunds.some((refund) => refund.status === "unknown" || refund.status === "pending"),
+  );
 
   if (signedIn == null) {
     return (
@@ -941,25 +1015,30 @@ export default function App() {
       )}
       {opening ? <p className="status">Loading the seat map…</p> : null}
       {mapError != null ? <p className="error">{mapError}</p> : null}
-      {paidOrder?.payment != null ? (
+      {ticketsOpen && visiblePaidOrders.length > 0 ? (
         <section className="tickets-screen" aria-label="Tickets">
           <h3>Tickets</h3>
-          <ul>
-            {paidOrder.tickets.map((ticket) => (
-              <li key={ticket.seatId}>
-                <label className="ticket-choice">
-                  <input
-                    type="checkbox"
-                    checked={ticketIdsToCancel.includes(ticket.seatId)}
-                    onChange={() => toggleTicket(ticket.seatId)}
-                  />
-                  {ticket.label}
-                </label>
-              </li>
-            ))}
-          </ul>
-          <p>{paidOrder.payment.status}</p>
-          <p className="amount">{formatCents(paidOrder.payment.amountCents)}</p>
+          {visiblePaidOrders.map((order) => (
+            <div key={order.id} className="ticket-order">
+              <h4>Order {order.id}</h4>
+              <ul>
+                {order.tickets.map((ticket) => (
+                  <li key={ticket.seatId}>
+                    <label className="ticket-choice">
+                      <input
+                        type="checkbox"
+                        checked={ticketIdsToCancel.includes(ticket.seatId)}
+                        onChange={() => toggleTicket(ticket.seatId)}
+                      />
+                      {ticket.label}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              <p>{order.payment?.status}</p>
+              <p className="amount">{formatCents(order.payment?.amountCents ?? 0)}</p>
+            </div>
+          ))}
           <fieldset className="refund-script">
             <legend>Result</legend>
             {(["success", "decline", "timeout", "unknown"] as const).map((mock) => (
@@ -1033,13 +1112,18 @@ export default function App() {
                   </label>
                 ))}
               </fieldset>
-              <button type="button" className="primary" onClick={() => void submitCheckout()}>
+              <button
+                type="button"
+                className="primary"
+                disabled={paymentStatus === "unknown" || paymentStatus === "pending"}
+                onClick={() => void submitCheckout()}
+              >
                 Check out
               </button>
               {paymentStatus === "unknown" || paymentStatus === "pending" ? (
                 <button
                   type="button"
-                  className="secondary"
+                  className="primary"
                   disabled={paymentMock == null}
                   onClick={() => void submitReconcilePayment()}
                 >
@@ -1086,23 +1170,23 @@ export default function App() {
             </button>
             {promoError != null ? <p className="error">{promoError}</p> : null}
           </form>
-          {earlierOrder != null && earlierOrder.tickets.length > 0 ? (
+          {ticketLinkLabels !== "" ? (
             <a
               className="ticket-link"
-              href={`#tickets-${earlierOrder.id}`}
+              href="#tickets"
               onClick={(event) => {
                 event.preventDefault();
                 openEarlierTickets();
               }}
             >
-              Tickets {earlierOrder.tickets.map((ticket) => ticket.label).join(", ")}
+              Tickets {ticketLinkLabels}
             </a>
           ) : null}
           <button
             type="button"
             className="primary"
             onClick={() => {
-              setPaymentStatus(null);
+              setPaymentStatus(confirmedHold.paymentStatus ?? null);
               setCheckoutError(null);
               setCheckoutOpen(true);
             }}
@@ -1115,6 +1199,7 @@ export default function App() {
           <button type="button" className="secondary" disabled={releasing} onClick={() => void submitReleaseHold()}>
             {releasing ? "Releasing…" : "Release hold"}
           </button>
+          {holdError != null ? <p className="error">{holdError}</p> : null}
         </section>
       ) : seatMap != null ? (
         <section className="map">
@@ -1138,18 +1223,19 @@ export default function App() {
                   {releasing ? "Releasing…" : "Release hold"}
                 </button>
               </div>
+              {holdError != null ? <p className="error">{holdError}</p> : null}
             </div>
           ) : null}
-          {earlierOrder != null && earlierOrder.tickets.length > 0 ? (
+          {ticketLinkLabels !== "" ? (
             <a
               className="ticket-link"
-              href={`#tickets-${earlierOrder.id}`}
+              href="#tickets"
               onClick={(event) => {
                 event.preventDefault();
                 openEarlierTickets();
               }}
             >
-              Tickets {earlierOrder.tickets.map((ticket) => ticket.label).join(", ")}
+              Tickets {ticketLinkLabels}
             </a>
           ) : null}
           <ul className="legend" aria-label="Legend">

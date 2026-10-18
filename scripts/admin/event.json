@@ -1,0 +1,9 @@
+{
+  "action": "event",
+  "name": "Demo Night",
+  "venue": "Harbor Hall",
+  "startsAt": "2027-03-14T00:00:00Z",
+  "timeZone": "America/New_York",
+  "earlyBirdStartsAt": "2027-02-01T00:00:00Z",
+  "earlyBirdEndsAt": "2027-03-01T00:00:00Z"
+}

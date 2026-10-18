@@ -1,0 +1,8 @@
+{
+  "action": "exceptional-refund",
+  "orderId": 10,
+  "amountCents": 100,
+  "reason": "Goodwill",
+  "mock": "success",
+  "confirm": false
+}

@@ -1,0 +1,7 @@
+{
+  "action": "cancellation",
+  "event": "Harbor Lights",
+  "reason": "The show will not happen",
+  "mock": "success",
+  "confirm": false
+}

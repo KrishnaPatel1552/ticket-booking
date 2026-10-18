@@ -419,7 +419,7 @@ test("a later hold does not link an earlier order that no longer has tickets", a
   expect(screen.queryByRole("link", { name: /Tickets/ })).toBeNull();
 });
 
-test("checking out removes the earlier order link", async () => {
+test("an unresolved checkout keeps the tickets from earlier orders", async () => {
   const user = await holdSeatsOnMap(visitMap, emptyOrder(), ["A1"]);
   await user.click(screen.getByRole("button", { name: "Check out" }));
   vi.mocked(fetchOrder).mockResolvedValueOnce({
@@ -460,7 +460,7 @@ test("checking out removes the earlier order link", async () => {
   await screen.findByRole("status");
   await user.click(screen.getByRole("button", { name: "Return to order" }));
 
-  expect(screen.queryByRole("link", { name: "Tickets A1" })).toBeNull();
+  expect(screen.getByRole("link", { name: "Tickets A1" })).toBeTruthy();
   expect(document.querySelector("section.hold-screen")).not.toBeNull();
   expect(screen.getByText("B1")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Check out" })).toBeTruthy();
@@ -548,4 +548,157 @@ test("an unknown payment can be reconciled to open the tickets screen", async ()
   expect(within(tickets).getByText("A2")).toBeTruthy();
   expect(vi.mocked(reconcilePayment)).toHaveBeenCalledWith(9, "success");
 });
+
+test("reopening the seat map for an active hold with an unknown payment restores Reconcile payment on Check out", async () => {
+  vi.mocked(signIn).mockResolvedValueOnce({ email: "ada@example.com", role: "customer" });
+  vi.mocked(searchEvents).mockResolvedValueOnce([
+    {
+      id: harborMap.id,
+      name: harborMap.name,
+      venueId: 1,
+      venueName: harborMap.venueName,
+      startsAt: harborMap.startsAt,
+      timeZone: harborMap.timeZone,
+    },
+  ]);
+  vi.mocked(fetchSeatMap).mockResolvedValueOnce({
+    ...harborMap,
+    activeHoldOrderId: 9,
+    sections: [
+      {
+        name: "Orchestra",
+        seats: [
+          seat({ id: 1, label: "A1", state: "held", yours: true }),
+          seat({ id: 2, label: "A2", state: "free" }),
+        ],
+      },
+    ],
+  });
+  vi.mocked(fetchWaitlist).mockResolvedValueOnce(null);
+  vi.mocked(fetchOrder).mockResolvedValueOnce({
+    id: 9,
+    eventId: 7,
+    promoCode: null,
+    payment: { status: "unknown", amountCents: 5250 },
+    tickets: [],
+    refunds: [],
+    holds: [{ seatId: 1, label: "A1", heldUntil: "2026-06-12T23:10:00.000Z" }],
+  });
+  vi.mocked(fetchSaleTerms).mockResolvedValueOnce({
+    groupRateThreshold: 4,
+    groupRateAmountCents: 800,
+    serviceFeeCents: 250,
+  });
+
+  const user = userEvent.setup();
+  render(<App />);
+  await user.type(screen.getByLabelText("Email"), "ada@example.com");
+  await user.type(screen.getByLabelText("Password"), "correct-password");
+  await user.click(screen.getByRole("button", { name: "Sign in" }));
+  await user.type(await screen.findByLabelText("Search events by name"), "Harbor");
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await user.click(await screen.findByRole("button", { name: "Open seat map" }));
+
+  const banner = await screen.findByRole("region", { name: "Active hold" });
+  await user.click(within(banner).getByRole("button", { name: "Check out" }));
+
+  expect((await screen.findByRole("status")).textContent).toBe("unknown");
+  expect(screen.getByRole("button", { name: "Reconcile payment" })).toBeTruthy();
+});
+
+test("every paid order is listed so selected tickets can be cancelled", async () => {
+  vi.mocked(signIn).mockResolvedValueOnce({ email: "ada@example.com", role: "customer" });
+  vi.mocked(searchEvents).mockResolvedValueOnce([
+    {
+      id: harborMap.id,
+      name: harborMap.name,
+      venueId: 1,
+      venueName: harborMap.venueName,
+      startsAt: harborMap.startsAt,
+      timeZone: harborMap.timeZone,
+    },
+  ]);
+  vi.mocked(fetchSeatMap).mockResolvedValue({
+    ...harborMap,
+    paidOrderIds: [1, 4],
+    sections: [
+      {
+        name: "Orchestra",
+        seats: [
+          seat({ id: 1, label: "A1", state: "ticket", yours: true }),
+          seat({ id: 5, label: "A5", state: "ticket", yours: true }),
+        ],
+      },
+    ],
+  });
+  vi.mocked(fetchWaitlist).mockResolvedValue(null);
+  vi.mocked(fetchOrder).mockImplementation(async (orderId: number) => {
+    if (orderId === 1) {
+      return {
+        id: 1,
+        eventId: harborMap.id,
+        promoCode: null,
+        payment: { status: "succeeded", amountCents: 4000 },
+        tickets: [{ seatId: 1, label: "A1" }],
+        refunds: [],
+        holds: [],
+      };
+    }
+    return {
+      id: 4,
+      eventId: harborMap.id,
+      promoCode: null,
+      payment: { status: "succeeded", amountCents: 4000 },
+      tickets: [{ seatId: 5, label: "A5" }],
+      refunds: [],
+      holds: [],
+    };
+  });
+
+  const user = userEvent.setup();
+  render(<App />);
+  await user.type(screen.getByLabelText("Email"), "ada@example.com");
+  await user.type(screen.getByLabelText("Password"), "correct-password");
+  await user.click(screen.getByRole("button", { name: "Sign in" }));
+  await user.type(await screen.findByLabelText("Search events by name"), "Harbor");
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  await user.click(await screen.findByRole("button", { name: "Open seat map" }));
+
+  await user.click(await screen.findByRole("link", { name: "Tickets A1, A5" }));
+  const tickets = await screen.findByRole("region", { name: "Tickets" });
+  expect(within(tickets).getByRole("checkbox", { name: "A1" })).toBeTruthy();
+  expect(within(tickets).getByRole("checkbox", { name: "A5" })).toBeTruthy();
+
+  vi.mocked(cancelTickets).mockImplementation(async (orderId: number) => {
+    if (orderId === 1) {
+      return {
+        id: 1,
+        eventId: harborMap.id,
+        promoCode: null,
+        payment: { status: "succeeded", amountCents: 4000 },
+        tickets: [],
+        refunds: [{ status: "succeeded", amountCents: 4000 }],
+        holds: [],
+      };
+    }
+    return {
+      id: 4,
+      eventId: harborMap.id,
+      promoCode: null,
+      payment: { status: "succeeded", amountCents: 4000 },
+      tickets: [{ seatId: 5, label: "A5" }],
+      refunds: [],
+      holds: [],
+    };
+  });
+  await user.click(within(tickets).getByRole("checkbox", { name: "A1" }));
+  await user.click(within(tickets).getByRole("radio", { name: "success" }));
+  await user.click(within(tickets).getByRole("button", { name: "Cancel selected" }));
+
+  expect(vi.mocked(cancelTickets)).toHaveBeenCalledWith(1, [1], "success");
+  expect(vi.mocked(cancelTickets)).not.toHaveBeenCalledWith(4, expect.anything(), expect.anything());
+  expect(within(tickets).queryByRole("checkbox", { name: "A1" })).toBeNull();
+  expect(within(tickets).getByRole("checkbox", { name: "A5" })).toBeTruthy();
+});
+
 
