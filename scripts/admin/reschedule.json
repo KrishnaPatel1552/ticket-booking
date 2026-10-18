@@ -1,0 +1,7 @@
+{
+  "action": "reschedule",
+  "event": "Harbor Lights",
+  "startsAt": "2027-01-20T01:00:00Z",
+  "reason": "The show moves to January",
+  "confirm": false
+}

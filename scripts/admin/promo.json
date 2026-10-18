@@ -1,0 +1,8 @@
+{
+  "action": "promo",
+  "code": "SAVE500",
+  "amountCents": 500,
+  "globalLimit": 10,
+  "perCustomerLimit": 1,
+  "exclusive": false
+}
