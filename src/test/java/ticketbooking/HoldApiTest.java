@@ -85,10 +85,70 @@ class HoldApiTest {
                 "seatIds", seven));
 
         assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(limitReason(refused)).isEqualTo("order-limit");
         JsonNode after = ada.get("/api/events/" + eventId).getBody();
         for (String label : List.of("A1", "A2", "A3", "A4", "A5", "A6", "A7")) {
             assertThat(seatState(after, label)).isEqualTo("free");
         }
+    }
+
+    @Test
+    void requestOverBothRoomsReturnsTheOrderLimitAndWritesNoHolds() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        JsonNode before = ada.get("/api/events/" + eventId).getBody();
+        List<String> labels = List.of(
+                "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A11", "A12", "B1");
+        List<Long> thirteen = labels.stream().map(label -> seatId(before, label)).toList();
+
+        ResponseEntity<JsonNode> refused = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", thirteen));
+
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(limitReason(refused)).isEqualTo("order-limit");
+        JsonNode after = ada.get("/api/events/" + eventId).getBody();
+        for (String label : labels) {
+            assertThat(seatState(after, label)).isEqualTo("free");
+        }
+    }
+
+    @Test
+    void aHeldSeatABlockAndACancelledEventStayConflictsWithoutALimitReason() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+        long a2 = seatId(opened, "A2");
+
+        assertThat(ada.post("/api/events/" + eventId + "/holds", java.util.Map.of("seatIds", List.of(a1)))
+                .getStatusCode()).isEqualTo(HttpStatus.OK);
+        ResponseEntity<JsonNode> taken = grace.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(a1)));
+        assertThat(taken.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(limitReason(taken)).isNull();
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("held");
+
+        assertThat(admin.post("/api/admin/events/" + eventId + "/seats/" + a2 + "/block", java.util.Map.of(
+                "reason", "Artist hold")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        ResponseEntity<JsonNode> blocked = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(a2)));
+        assertThat(blocked.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(limitReason(blocked)).isNull();
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A2")).isEqualTo("blocked");
+
+        long cancelledEventId = createEvent(admin);
+        JsonNode cancelledMap = ada.get("/api/events/" + cancelledEventId).getBody();
+        long cancelledSeat = seatId(cancelledMap, "A1");
+        assertThat(admin.post("/api/admin/events/" + cancelledEventId + "/cancellation", java.util.Map.of(
+                "reason", "The artist is ill",
+                "mock", "success")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        ResponseEntity<JsonNode> cancelled = ada.post("/api/events/" + cancelledEventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(cancelledSeat)));
+        assertThat(cancelled.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(limitReason(cancelled)).isNull();
     }
 
     @Test
@@ -109,6 +169,7 @@ class HoldApiTest {
         ResponseEntity<JsonNode> twoMore = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
                 "seatIds", List.of(seatId(opened, "A6"), seatId(opened, "A7"))));
         assertThat(twoMore.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(limitReason(twoMore)).isEqualTo("order-limit");
         JsonNode afterTwo = ada.get("/api/events/" + eventId).getBody();
         for (String label : List.of("A1", "A2", "A3", "A4", "A5")) {
             assertThat(seatState(afterTwo, label)).isEqualTo("held");
@@ -143,6 +204,7 @@ class HoldApiTest {
         ResponseEntity<JsonNode> two = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
                 "seatIds", List.of(seatId(opened, "A12"), seatId(opened, "B1"))));
         assertThat(two.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(limitReason(two)).isEqualTo("event-limit");
         JsonNode afterTwo = ada.get("/api/events/" + eventId).getBody();
         assertThat(seatState(afterTwo, "A12")).isEqualTo("free");
         assertThat(seatState(afterTwo, "B1")).isEqualTo("free");
@@ -512,6 +574,14 @@ class HoldApiTest {
             }
         }
         throw new AssertionError("No event named " + name);
+    }
+
+    private static String limitReason(ResponseEntity<JsonNode> response) {
+        JsonNode body = response.getBody();
+        if (body == null || !body.hasNonNull("reason")) {
+            return null;
+        }
+        return body.get("reason").asText();
     }
 
     private static long seatId(JsonNode event, String label) {

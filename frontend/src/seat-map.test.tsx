@@ -293,6 +293,34 @@ test("a failed hold stays on the map and shows that those seats could not be hel
   expect(screen.queryByRole("heading", { name: "Hold" })).toBeNull();
 });
 
+test("a hold over the event limit names that limit and keeps the selected seat", async () => {
+  vi.mocked(holdSeats).mockRejectedValueOnce({ reason: "event-limit" });
+  const user = await openHarborMap();
+
+  await user.click(screen.getByRole("button", { name: "A1 free" }));
+  await user.click(screen.getByRole("button", { name: "Hold seats" }));
+
+  expect(await screen.findByText("Those seats are over the limit of 12 for this event.")).toBeTruthy();
+  expect(screen.queryByText("Those seats could not be held.")).toBeNull();
+  expect(screen.queryByText("Those seats are over the limit of 6 on this order.")).toBeNull();
+  expect(screen.getByRole("button", { name: "A1 free" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("grid", { name: "Orchestra" })).toBeTruthy();
+});
+
+test("a hold over the order limit names that limit and keeps the selected seat", async () => {
+  vi.mocked(holdSeats).mockRejectedValueOnce({ reason: "order-limit" });
+  const user = await openHarborMap();
+
+  await user.click(screen.getByRole("button", { name: "A1 free" }));
+  await user.click(screen.getByRole("button", { name: "Hold seats" }));
+
+  expect(await screen.findByText("Those seats are over the limit of 6 on this order.")).toBeTruthy();
+  expect(screen.queryByText("Those seats could not be held.")).toBeNull();
+  expect(screen.getByRole("button", { name: "A1 free" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("grid", { name: "Orchestra" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "Hold" })).toBeNull();
+});
+
 test("a seat map that does not load shows that failure", async () => {
   vi.mocked(signIn).mockResolvedValueOnce({ email: "ada@example.com", role: "customer" });
   vi.mocked(searchEvents).mockResolvedValueOnce([

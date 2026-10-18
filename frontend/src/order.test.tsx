@@ -365,5 +365,6 @@ test("reopening the seat map with an active hold offers Check out, Release hold,
 
   await user.click(screen.getByRole("button", { name: "Search events" }));
   expect(await screen.findByLabelText("Search events by name")).toBeTruthy();
+  expect(vi.mocked(releaseOrderHolds)).not.toHaveBeenCalled();
 });
 

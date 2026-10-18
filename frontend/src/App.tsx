@@ -22,6 +22,18 @@ function formatCents(cents: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
+function holdRefusalMessage(error: unknown): string {
+  const reason =
+    typeof error === "object" && error != null && "reason" in error ? error.reason : null;
+  if (reason === "order-limit") {
+    return "Those seats are over the limit of 6 on this order.";
+  }
+  if (reason === "event-limit") {
+    return "Those seats are over the limit of 12 for this event.";
+  }
+  return "Those seats could not be held.";
+}
+
 function formatWhen(instant: string, timeZone: string): string {
   return new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
@@ -583,8 +595,8 @@ export default function App() {
       setConfirmedHold(nextHold);
       setActiveHold(nextHold);
       setSelectedSeatIds([]);
-    } catch {
-      setHoldError("Those seats could not be held.");
+    } catch (error) {
+      setHoldError(holdRefusalMessage(error));
       await loadSeatMap(eventId);
     } finally {
       setHolding(false);

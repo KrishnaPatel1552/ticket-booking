@@ -102,9 +102,10 @@ public class HoldSeats {
             order.attachPromoCode(null);
         }
         long atEvent = eventSeats.countActiveForCustomerAtEvent(customer.getId(), event.getId());
-        long remaining = Math.min(ORDER_CAP - onOrder, EVENT_CAP - atEvent);
-        if (seatIds.size() > remaining) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT);
+        long orderRoom = ORDER_CAP - onOrder;
+        long eventRoom = EVENT_CAP - atEvent;
+        if (seatIds.size() > Math.min(orderRoom, eventRoom)) {
+            throw new HoldLimitExceeded(orderRoom <= eventRoom ? "order-limit" : "event-limit");
         }
         if (order == null) {
             order = orders.save(new CustomerOrder(customer, event, now));

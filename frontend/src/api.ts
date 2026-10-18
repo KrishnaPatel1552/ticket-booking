@@ -145,7 +145,19 @@ export async function holdSeats(eventId: number, seatIds: number[]): Promise<Hel
     credentials: "include",
     body: JSON.stringify({ seatIds }),
   });
-  return readJson<HeldSeats>(response);
+  if (!response.ok) {
+    throw Object.assign(new Error(String(response.status)), { reason: await holdLimitReason(response) });
+  }
+  return response.json() as Promise<HeldSeats>;
+}
+
+async function holdLimitReason(response: Response): Promise<string | null> {
+  try {
+    const body = (await response.json()) as { reason?: unknown };
+    return body.reason === "order-limit" || body.reason === "event-limit" ? body.reason : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function releaseOrderHolds(orderId: number): Promise<OrderView> {
