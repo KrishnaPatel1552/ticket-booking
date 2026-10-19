@@ -22,9 +22,12 @@ function formatCents(cents: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
+function refusalReason(error: unknown): unknown {
+  return typeof error === "object" && error != null && "reason" in error ? error.reason : null;
+}
+
 function holdRefusalMessage(error: unknown): string {
-  const reason =
-    typeof error === "object" && error != null && "reason" in error ? error.reason : null;
+  const reason = refusalReason(error);
   if (reason === "order-limit") {
     return "Those seats are over the limit of 6 on this order.";
   }
@@ -32,6 +35,13 @@ function holdRefusalMessage(error: unknown): string {
     return "Those seats are over the limit of 12 for this event.";
   }
   return "Those seats could not be held.";
+}
+
+function waitlistRefusalMessage(error: unknown): string {
+  if (refusalReason(error) === "event-limit") {
+    return "You already have the limit of 12 tickets for this event.";
+  }
+  return "The waitlist did not accept that request.";
 }
 
 function formatWhen(instant: string, timeZone: string): string {
@@ -238,13 +248,78 @@ type ActiveHoldState = {
   paymentStatus?: PaymentStatus | null;
 };
 
+type CustomerView = "search" | "map" | "hold" | "checkout" | "tickets";
+
+type CustomerPlace = {
+  query: string;
+  eventId: number | null;
+  view: CustomerView;
+};
+
+function readPlace(): CustomerPlace {
+  const params = new URLSearchParams(window.location.search);
+  const eventRaw = params.get("event");
+  const eventId = eventRaw != null && /^[1-9]\d*$/.test(eventRaw) ? Number(eventRaw) : null;
+  const viewRaw = params.get("view");
+  let view: CustomerView = eventId == null ? "search" : "map";
+  if (eventId != null && (viewRaw === "hold" || viewRaw === "checkout" || viewRaw === "tickets")) {
+    view = viewRaw;
+  }
+  return { query: params.get("q") ?? "", eventId, view };
+}
+
+function placeUrl(place: CustomerPlace): string {
+  const params = new URLSearchParams();
+  if (place.query !== "") {
+    params.set("q", place.query);
+  }
+  if (place.eventId != null) {
+    params.set("event", String(place.eventId));
+  }
+  if (place.view === "hold" || place.view === "checkout" || place.view === "tickets") {
+    params.set("view", place.view);
+  }
+  const search = params.toString();
+  return `${window.location.pathname}${search === "" ? "" : `?${search}`}`;
+}
+
+function writePlace(place: CustomerPlace, mode: "push" | "replace") {
+  const url = placeUrl(place);
+  if (`${window.location.pathname}${window.location.search}` === url) {
+    return;
+  }
+  if (mode === "push") {
+    window.history.pushState(null, "", url);
+    return;
+  }
+  window.history.replaceState(null, "", url);
+}
+
+function summaryFromMap(map: EventSeatMap): EventSummary {
+  return {
+    id: map.id,
+    name: map.name,
+    venueId: 0,
+    venueName: map.venueName,
+    startsAt: map.startsAt,
+    timeZone: map.timeZone,
+  };
+}
+
 export default function App() {
+  const [sessionReady, setSessionReady] = useState(false);
   const [signedIn, setSignedIn] = useState<SignedIn | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [signInError, setSignInError] = useState<string | null>(null);
   const [signingIn, setSigningIn] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const queryRef = useRef("");
+  queryRef.current = query;
+  const signedInRef = useRef<SignedIn | null>(null);
+  const savedPlaceRef = useRef<(place: CustomerPlace) => Promise<void>>(async () => {});
   const [events, setEvents] = useState<EventSummary[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
@@ -296,55 +371,155 @@ export default function App() {
     node?.focus();
   });
 
+  useEffect(() => {
+    let cancelled = false;
+    api.currentSession()
+      .then(async (session) => {
+        if (cancelled) {
+          return;
+        }
+        signedInRef.current = session;
+        setSignedIn(session);
+        if (session != null) {
+          await savedPlaceRef.current(readPlace());
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          signedInRef.current = null;
+          setSignedIn(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSessionReady(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    function onPopState() {
+      if (signedInRef.current == null) {
+        return;
+      }
+      void savedPlaceRef.current(readPlace());
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  function leaveCustomer() {
+    setEmail("");
+    setPassword("");
+    setSignInError(null);
+    setSignOutError(null);
+    setQuery("");
+    setEvents([]);
+    setSearchError(null);
+    setSearching(false);
+    setOpenEventId(null);
+    setSeatMap(null);
+    setMapError(null);
+    setOpening(false);
+    setSelectedSeatIds([]);
+    setHolding(false);
+    setReleasing(false);
+    setHoldError(null);
+    setConfirmedHold(null);
+    setActiveHold(null);
+    setSaleTerms(null);
+    setPriceUnavailable(false);
+    setPaidOrders([]);
+    setTicketsOpen(false);
+    setPromoCode(null);
+    setPromoAmountCents(null);
+    setPromoExclusive(null);
+    setPromoDraft("");
+    setPromoError(null);
+    setAttaching(false);
+    setCheckoutOpen(false);
+    setPaymentMock(null);
+    setPaymentStatus(null);
+    setTicketIdsToCancel([]);
+    setRefundMock(null);
+    setRefundScript(null);
+    setRefundAmountCents(null);
+    setCancelError(null);
+    setCheckoutError(null);
+    setTabStops({});
+    setFocusedSeatId(null);
+    setPricedAt(0);
+    setWaitlist(null);
+    setOfferedHolds([]);
+    setJoining(false);
+    setJoinError(null);
+    seatRefs.current.clear();
+    pendingFocusId.current = null;
+  }
+
+  function remember(
+    view: CustomerView,
+    eventId: number | null,
+    mode: "push" | "replace" = "push",
+    nextQuery = queryRef.current.trim(),
+  ) {
+    writePlace({ query: nextQuery, eventId, view }, mode);
+  }
+
   async function loadSeatMap(eventId: number) {
     setOpening(true);
     setMapError(null);
     try {
       const map = await api.fetchSeatMap(eventId);
       setSeatMap(map);
+      setEvents((current) =>
+        current.some((event) => event.id === map.id) ? current : [summaryFromMap(map), ...current],
+      );
       setPricedAt(readClock());
       setSelectedSeatIds((current) => current.filter((id) => seatById(map, id)?.state === "free"));
       await loadWaitlist(eventId);
-      await syncCustomerEventOrders(map);
+      return await syncCustomerEventOrders(map);
     } catch {
       setSeatMap(null);
       setMapError("The seat map did not load.");
+      return null;
     } finally {
       setOpening(false);
     }
   }
 
   async function syncCustomerEventOrders(map: EventSeatMap) {
+    let hold: ActiveHoldState | null = null;
     if (map.activeHoldOrderId != null) {
       try {
         const order = await api.fetchOrder(map.activeHoldOrderId);
         if (order != null && order.holds.length > 0) {
-          setActiveHold({
+          hold = {
             orderId: order.id,
-            labels: order.holds.map((hold) => hold.label),
-            seatIds: order.holds.map((hold) => hold.seatId),
+            labels: order.holds.map((item) => item.label),
+            seatIds: order.holds.map((item) => item.seatId),
             heldUntil: order.holds[0].heldUntil,
             paymentStatus: order.payment?.status ?? null,
-          });
+          };
           setPromoCode(order.promoCode);
           setPromoAmountCents(order.promoAmountCents ?? null);
           setPromoExclusive(order.promoExclusive ?? null);
-        } else {
-          setActiveHold(null);
         }
       } catch {
-        setActiveHold(null);
+        hold = null;
       }
-    } else {
-      setActiveHold(null);
     }
+    setActiveHold(hold);
     if (map.paidOrderIds == null) {
-      return;
+      return { hold, paid: [] as OrderView[] };
     }
     const paidIds = map.paidOrderIds;
     if (paidIds.length === 0) {
       setPaidOrders([]);
-      return;
+      return { hold, paid: [] as OrderView[] };
     }
     const loaded = await Promise.all(
       paidIds.map(async (orderId) => {
@@ -355,12 +530,89 @@ export default function App() {
         }
       }),
     );
-    setPaidOrders(
-      loaded
-        .filter((order): order is OrderView => order != null && order.tickets.length > 0)
-        .sort((left, right) => left.id - right.id),
-    );
+    const paid = loaded
+      .filter((order): order is OrderView => order != null && order.tickets.length > 0)
+      .sort((left, right) => left.id - right.id);
+    setPaidOrders(paid);
+    return { hold, paid };
   }
+
+  async function openSavedPlace(place: CustomerPlace) {
+    setTicketsOpen(false);
+    setCheckoutOpen(false);
+    setConfirmedHold(null);
+    setPaymentStatus(null);
+    setPaymentMock(null);
+    setMapError(null);
+    setQuery(place.query);
+    if (place.eventId == null) {
+      setOpenEventId(null);
+      setSeatMap(null);
+      setActiveHold(null);
+      setPaidOrders([]);
+      if (place.query === "") {
+        setEvents([]);
+        setSearchError(null);
+        return;
+      }
+      setSearching(true);
+      setSearchError(null);
+      try {
+        const found = await api.searchEvents(place.query);
+        setEvents(found);
+        if (found.length === 0) {
+          setSearchError("No events match that name.");
+        }
+      } catch {
+        setEvents([]);
+        setSearchError("The search did not complete.");
+      } finally {
+        setSearching(false);
+      }
+      return;
+    }
+    if (place.query !== "") {
+      try {
+        const found = await api.searchEvents(place.query);
+        setEvents(found);
+        if (found.length === 0) {
+          setSearchError("No events match that name.");
+        }
+      } catch {
+        setSearchError("The search did not complete.");
+      }
+    }
+    setOpenEventId(place.eventId);
+    const synced = await loadSeatMap(place.eventId);
+    if (synced == null) {
+      return;
+    }
+    const visibleTickets = synced.paid.some((order) => order.payment != null && order.tickets.length > 0);
+    if (synced.hold != null && (place.view === "hold" || place.view === "checkout" || place.view === "tickets")) {
+      setConfirmedHold(synced.hold);
+      setActiveHold(synced.hold);
+      if (place.view === "hold" || place.view === "checkout") {
+        setSaleTerms(await loadSaleTerms());
+      }
+      if (place.view === "checkout") {
+        setPaymentStatus(synced.hold.paymentStatus ?? null);
+        setCheckoutOpen(true);
+        return;
+      }
+      if (place.view === "hold") {
+        return;
+      }
+    }
+    if (place.view === "tickets" && visibleTickets) {
+      setTicketsOpen(true);
+      return;
+    }
+    if (place.view !== "map") {
+      writePlace({ ...place, view: "map" }, "replace");
+    }
+  }
+
+  savedPlaceRef.current = openSavedPlace;
 
   function storePaidOrder(order: OrderView) {
     setPaidOrders((current) => {
@@ -392,8 +644,8 @@ export default function App() {
     setJoinError(null);
     try {
       setWaitlist(await api.joinWaitlist(seatMap.id));
-    } catch {
-      setJoinError("The waitlist did not accept that request.");
+    } catch (error) {
+      setJoinError(waitlistRefusalMessage(error));
     } finally {
       setJoining(false);
     }
@@ -405,6 +657,7 @@ export default function App() {
     setSignInError(null);
     try {
       const session = await api.signIn(email, password);
+      signedInRef.current = session;
       setSignedIn(session);
       setPassword("");
     } catch {
@@ -412,6 +665,22 @@ export default function App() {
       setSignInError("That email and password did not sign you in.");
     } finally {
       setSigningIn(false);
+    }
+  }
+
+  async function submitSignOut() {
+    setSigningOut(true);
+    setSignOutError(null);
+    try {
+      await api.signOut();
+      leaveCustomer();
+      signedInRef.current = null;
+      writePlace({ query: "", eventId: null, view: "search" }, "replace");
+      setSignedIn(null);
+    } catch {
+      setSignOutError("Sign out did not finish.");
+    } finally {
+      setSigningOut(false);
     }
   }
 
@@ -425,6 +694,7 @@ export default function App() {
     }
     setSearching(true);
     setSearchError(null);
+    remember("search", null, "push", name);
     try {
       const found = await api.searchEvents(name);
       setEvents(found);
@@ -443,6 +713,7 @@ export default function App() {
   }
 
   async function openEvent(eventId: number) {
+    remember("map", eventId);
     setOpenEventId(eventId);
     setSeatMap(null);
     setSelectedSeatIds([]);
@@ -476,6 +747,7 @@ export default function App() {
   }
 
   function backToSearch() {
+    remember("search", null);
     setOpenEventId(null);
     setSeatMap(null);
     setMapError(null);
@@ -551,6 +823,9 @@ export default function App() {
     };
     setConfirmedHold(holdState);
     setActiveHold(holdState);
+    if (seatMap != null) {
+      remember("hold", seatMap.id);
+    }
   }
 
   async function resumeHoldCheckout() {
@@ -564,6 +839,9 @@ export default function App() {
     setPaymentStatus(activeHold.paymentStatus ?? null);
     setCheckoutError(null);
     setCheckoutOpen(true);
+    if (seatMap != null) {
+      remember("checkout", seatMap.id);
+    }
   }
 
   async function submitHold() {
@@ -595,6 +873,7 @@ export default function App() {
       setConfirmedHold(nextHold);
       setActiveHold(nextHold);
       setSelectedSeatIds([]);
+      remember("hold", eventId);
     } catch (error) {
       setHoldError(holdRefusalMessage(error));
       await loadSeatMap(eventId);
@@ -627,6 +906,7 @@ export default function App() {
       setPaymentStatus(null);
       if (eventId != null) {
         await loadSeatMap(eventId);
+        remember("map", eventId);
       }
     } catch {
       if (target.paymentStatus === "unknown" || target.paymentStatus === "pending") {
@@ -660,6 +940,10 @@ export default function App() {
     setRefundScript(null);
     setRefundAmountCents(null);
     setCancelError(null);
+    const eventId = seatMap?.id ?? openEventId;
+    if (eventId != null) {
+      remember("tickets", eventId);
+    }
   }
 
   function closeTickets() {
@@ -697,6 +981,9 @@ export default function App() {
     closeTickets();
     setConfirmedHold(null);
     setCheckoutOpen(false);
+    if (eventId != null) {
+      remember("map", eventId);
+    }
   }
 
   async function leaveHold() {
@@ -720,6 +1007,7 @@ export default function App() {
     setCheckoutError(null);
     if (eventId != null) {
       await loadSeatMap(eventId);
+      remember("map", eventId);
     }
   }
 
@@ -750,6 +1038,9 @@ export default function App() {
         setRefundAmountCents(null);
         setCancelError(null);
         setCheckoutOpen(false);
+        if (eventId != null) {
+          remember("tickets", eventId);
+        }
         return;
       }
       setPaymentStatus(status);
@@ -792,6 +1083,9 @@ export default function App() {
         setRefundAmountCents(null);
         setCancelError(null);
         setCheckoutOpen(false);
+        if (eventId != null) {
+          remember("tickets", eventId);
+        }
         return;
       }
       setPaymentStatus(status);
@@ -923,7 +1217,9 @@ export default function App() {
     );
   }
 
-  const openedEvent = events.find((event) => event.id === openEventId) ?? null;
+  const openedEvent =
+    events.find((event) => event.id === openEventId) ??
+    (seatMap != null && seatMap.id === openEventId ? summaryFromMap(seatMap) : null);
   const ticketTotalCents =
     seatMap == null
       ? 0
@@ -941,6 +1237,10 @@ export default function App() {
   const hasUnresolvedRefund = visiblePaidOrders.some((order) =>
     order.refunds.some((refund) => refund.status === "unknown" || refund.status === "pending"),
   );
+
+  if (!sessionReady) {
+    return <main className="sign-in-screen" />;
+  }
 
   if (signedIn == null) {
     return (
@@ -980,8 +1280,14 @@ export default function App() {
   return (
     <main className="events-screen">
       <header className="events-mast">
-        <h1>Ticket Booking</h1>
-        <p className="who">Signed in as {signedIn.email}</p>
+        <div>
+          <h1>Ticket Booking</h1>
+          <p className="who">Signed in as {signedIn.email}</p>
+        </div>
+        <button type="button" disabled={signingOut} onClick={() => void submitSignOut()}>
+          {signingOut ? "Signing out…" : "Sign out"}
+        </button>
+        {signOutError != null ? <p className="error">{signOutError}</p> : null}
       </header>
       {openedEvent == null ? (
         <>
@@ -1092,7 +1398,17 @@ export default function App() {
               Seat map
             </button>
           ) : (
-            <button type="button" className="secondary" onClick={closeTickets}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                closeTickets();
+                const eventId = seatMap?.id ?? openEventId;
+                if (eventId != null) {
+                  remember("hold", eventId);
+                }
+              }}
+            >
               Return to order
             </button>
           )}
@@ -1157,6 +1473,10 @@ export default function App() {
               setCheckoutError(null);
               setPaymentStatus(null);
               setCheckoutOpen(false);
+              const eventId = seatMap?.id ?? openEventId;
+              if (eventId != null) {
+                remember(confirmedHold == null ? "map" : "hold", eventId);
+              }
             }}
           >
             Return to order
@@ -1201,6 +1521,9 @@ export default function App() {
               setPaymentStatus(confirmedHold.paymentStatus ?? null);
               setCheckoutError(null);
               setCheckoutOpen(true);
+              if (seatMap != null) {
+                remember("checkout", seatMap.id);
+              }
             }}
           >
             Check out

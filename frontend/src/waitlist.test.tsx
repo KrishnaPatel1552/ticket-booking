@@ -16,6 +16,8 @@ import "./index.css";
 
 vi.mock("./api", () => ({
   signIn: vi.fn(),
+  currentSession: vi.fn().mockRejectedValue(new Error("unsigned")),
+  signOut: vi.fn().mockResolvedValue(undefined),
   searchEvents: vi.fn(),
   fetchSeatMap: vi.fn(),
   fetchWaitlist: vi.fn(),
@@ -79,7 +81,7 @@ async function openMap(map: EventSeatMap) {
   vi.mocked(fetchSeatMap).mockResolvedValue(map);
   const user = userEvent.setup();
   render(<App />);
-  await user.type(screen.getByLabelText("Email"), "ada@example.com");
+  await user.type(await screen.findByLabelText("Email"), "ada@example.com");
   await user.type(screen.getByLabelText("Password"), "correct-password");
   await user.click(screen.getByRole("button", { name: "Sign in" }));
   await user.type(await screen.findByLabelText("Search events by name"), "Harbor");
@@ -132,6 +134,17 @@ test("joining the waitlist shows a place in line", async () => {
   expect(await screen.findByText("You are number 4 in line.")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Join waitlist" })).toBeNull();
   expect(vi.mocked(joinWaitlist)).toHaveBeenCalledWith(7);
+});
+
+test("joining at the ticket limit shows that the customer already has 12", async () => {
+  vi.mocked(fetchWaitlist).mockResolvedValue(null);
+  vi.mocked(joinWaitlist).mockRejectedValue(Object.assign(new Error("409"), { reason: "event-limit" }));
+  const user = await openMap(soldOut);
+
+  await user.click(screen.getByRole("button", { name: "Join waitlist" }));
+
+  expect(await screen.findByText("You already have the limit of 12 tickets for this event.")).toBeTruthy();
+  expect(screen.queryByText(/You are number/)).toBeNull();
 });
 
 test("a rejected join shows that the waitlist did not accept that request", async () => {

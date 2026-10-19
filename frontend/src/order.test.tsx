@@ -20,6 +20,8 @@ import "./index.css";
 
 vi.mock("./api", () => ({
   signIn: vi.fn(),
+  currentSession: vi.fn().mockRejectedValue(new Error("unsigned")),
+  signOut: vi.fn().mockResolvedValue(undefined),
   searchEvents: vi.fn(),
   fetchSeatMap: vi.fn(),
   fetchWaitlist: vi.fn(),
@@ -105,7 +107,7 @@ async function holdSeatsOnMap(
   });
   const user = userEvent.setup();
   render(<App />);
-  await user.type(screen.getByLabelText("Email"), "ada@example.com");
+  await user.type(await screen.findByLabelText("Email"), "ada@example.com");
   await user.type(screen.getByLabelText("Password"), "correct-password");
   await user.click(screen.getByRole("button", { name: "Sign in" }));
   await user.type(await screen.findByLabelText("Search events by name"), "Harbor");
