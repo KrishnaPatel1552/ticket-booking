@@ -1,9 +1,30 @@
-# Personal source documents. The project record is the markdown, not these files.
+# Personal source documents and local prep notes
 /*.pdf
+.DS_Store
 
-# Implementer worktrees. Never commit their contents.
+# Local agent, Cursor, and interview study files
+.agents/
+.code-review-graph/
+.cursor/
+.cursorrules
+.scratch/
 .worktrees/
+AGENTS.md
+CURRENT_STATE.md
+MISSION.md
+PRODUCT.md
+RESOURCES.md
+TEACHING.md
+assets/
+docs/
+frontend/src/prototype/
+handoffs/
+lessons/
+reference/
+scripts/repro-held-seat-paths.mjs
+skills-lock.json
 
+# Build and dependency outputs
 target/
 frontend/node_modules/
 frontend/dist/

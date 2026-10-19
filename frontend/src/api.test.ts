@@ -7,7 +7,7 @@ afterEach(() => {
 });
 
 test("a sign-in is kept on this tab and sent as a bearer token without a cookie", async () => {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const path = String(input);
     if (path === "/api/sign-in") {
       return new Response(JSON.stringify({ email: "ada@example.com", role: "customer", token: "ada-tab" }), {
@@ -40,7 +40,7 @@ test("a tab with no sign-in does not ask who is signed in", async () => {
 
 test("signing out drops this tab's sign-in", async () => {
   sessionStorage.setItem("ticket-booking.tab-session", "ada-tab");
-  const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 204 }));
   vi.stubGlobal("fetch", fetchMock);
 
   await signOut();
