@@ -59,6 +59,63 @@ class CustomerApiTest {
     }
 
     @Test
+    void signingInAgainOnTheSameSessionReplacesTheCustomer() {
+        ApiSession session = new ApiSession();
+
+        ResponseEntity<JsonNode> ada = session.post("/api/sign-in", java.util.Map.of(
+                "email", "ada@example.com",
+                "password", "password"));
+        assertThat(ada.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(session.get("/api/me").getBody().get("email").asText()).isEqualTo("ada@example.com");
+
+        ResponseEntity<JsonNode> grace = session.post("/api/sign-in", java.util.Map.of(
+                "email", "grace@example.com",
+                "password", "password"));
+        assertThat(grace.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(grace.getBody().get("email").asText()).isEqualTo("grace@example.com");
+        assertThat(session.get("/api/me").getBody().get("email").asText()).isEqualTo("grace@example.com");
+    }
+
+    @Test
+    void signOutEndsTheSession() {
+        ApiSession session = new ApiSession();
+        assertThat(session.post("/api/sign-in", java.util.Map.of(
+                "email", "ada@example.com",
+                "password", "password")).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<Void> signedOut = session.postNoContent("/api/sign-out");
+        assertThat(signedOut.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(session.get("/api/me").getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void twoTabsStaySignedInAsDifferentCustomers() {
+        ResponseEntity<JsonNode> ada = signInForToken("ada@example.com");
+        ResponseEntity<JsonNode> grace = signInForToken("grace@example.com");
+        String adaToken = ada.getBody().get("token").asText();
+        String graceToken = grace.getBody().get("token").asText();
+
+        assertThat(adaToken).isNotEqualTo(graceToken);
+        assertThat(meAs(adaToken).getBody().get("email").asText()).isEqualTo("ada@example.com");
+        assertThat(meAs(graceToken).getBody().get("email").asText()).isEqualTo("grace@example.com");
+    }
+
+    @Test
+    void signingOutOneTabLeavesTheOtherCustomerSignedIn() {
+        String adaToken = signInForToken("ada@example.com").getBody().get("token").asText();
+        String graceToken = signInForToken("grace@example.com").getBody().get("token").asText();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(adaToken);
+        ResponseEntity<Void> signedOut = rest.exchange(
+                "/api/sign-out", HttpMethod.POST, new HttpEntity<>(headers), Void.class);
+
+        assertThat(signedOut.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(meAs(adaToken).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(meAs(graceToken).getBody().get("email").asText()).isEqualTo("grace@example.com");
+    }
+
+    @Test
     void secondCustomerSignsInAsACustomer() {
         ApiSession session = new ApiSession();
 
@@ -286,6 +343,25 @@ class CustomerApiTest {
         return labels;
     }
 
+    private ResponseEntity<JsonNode> signInForToken(String email) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<JsonNode> response = rest.exchange(
+                "/api/sign-in",
+                HttpMethod.POST,
+                new HttpEntity<>(java.util.Map.of("email", email, "password", "password"), headers),
+                JsonNode.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("token").asText()).isNotBlank();
+        return response;
+    }
+
+    private ResponseEntity<JsonNode> meAs(String token) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        return rest.exchange("/api/me", HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+    }
+
     private ApiSession signIn(String email) {
         ApiSession session = new ApiSession();
         ResponseEntity<JsonNode> response = session.post("/api/sign-in", java.util.Map.of(
@@ -316,6 +392,17 @@ class CustomerApiTest {
                 headers.set(HttpHeaders.COOKIE, cookieHeader);
             }
             return rest.exchange(path, HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+        }
+
+        private ResponseEntity<Void> postNoContent(String path) {
+            HttpHeaders headers = new HttpHeaders();
+            if (!cookieHeader.isEmpty()) {
+                headers.set(HttpHeaders.COOKIE, cookieHeader);
+            }
+            ResponseEntity<Void> response = rest.exchange(
+                    path, HttpMethod.POST, new HttpEntity<>(headers), Void.class);
+            remember(response);
+            return response;
         }
 
         private void remember(ResponseEntity<?> response) {

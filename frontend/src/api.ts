@@ -44,6 +44,29 @@ export type SignedIn = {
   role: "customer" | "admin";
 };
 
+const TAB_SESSION_KEY = "ticket-booking.tab-session";
+
+function tabToken(): string | null {
+  return sessionStorage.getItem(TAB_SESSION_KEY);
+}
+
+function withTabToken(init?: HeadersInit): Headers {
+  const headers = new Headers(init);
+  const token = tabToken();
+  if (token != null) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  return headers;
+}
+
+function call(path: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(path, {
+    ...init,
+    credentials: "omit",
+    headers: withTabToken(init.headers),
+  });
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     throw new Error(String(response.status));
@@ -52,26 +75,44 @@ async function readJson<T>(response: Response): Promise<T> {
 }
 
 export async function signIn(email: string, password: string): Promise<SignedIn> {
-  const response = await fetch("/api/sign-in", {
+  const response = await call("/api/sign-in", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "include",
     body: JSON.stringify({ email, password }),
   });
-  return readJson<SignedIn>(response);
+  const signedIn = await readJson<SignedIn & { token: string }>(response);
+  sessionStorage.setItem(TAB_SESSION_KEY, signedIn.token);
+  return { email: signedIn.email, role: signedIn.role };
+}
+
+export async function currentSession(): Promise<SignedIn | null> {
+  if (tabToken() == null) {
+    return null;
+  }
+  const response = await call("/api/me");
+  if (response.status === 401) {
+    sessionStorage.removeItem(TAB_SESSION_KEY);
+    return null;
+  }
+  const signedIn = await readJson<SignedIn>(response);
+  return { email: signedIn.email, role: signedIn.role };
+}
+
+export async function signOut(): Promise<void> {
+  const response = await call("/api/sign-out", { method: "POST" });
+  if (!response.ok && response.status !== 401) {
+    throw new Error(String(response.status));
+  }
+  sessionStorage.removeItem(TAB_SESSION_KEY);
 }
 
 export async function searchEvents(name: string): Promise<EventSummary[]> {
-  const response = await fetch(`/api/events?name=${encodeURIComponent(name)}`, {
-    credentials: "include",
-  });
+  const response = await call(`/api/events?name=${encodeURIComponent(name)}`);
   return readJson<EventSummary[]>(response);
 }
 
 export async function fetchSeatMap(eventId: number): Promise<EventSeatMap> {
-  const response = await fetch(`/api/events/${eventId}`, {
-    credentials: "include",
-  });
+  const response = await call(`/api/events/${eventId}`);
   return readJson<EventSeatMap>(response);
 }
 
@@ -121,17 +162,17 @@ export type WaitlistPlace = {
 };
 
 export async function joinWaitlist(eventId: number): Promise<WaitlistPlace> {
-  const response = await fetch(`/api/events/${eventId}/waitlist`, {
+  const response = await call(`/api/events/${eventId}/waitlist`, {
     method: "POST",
-    credentials: "include",
   });
-  return readJson<WaitlistPlace>(response);
+  if (!response.ok) {
+    throw Object.assign(new Error(String(response.status)), { reason: await holdLimitReason(response) });
+  }
+  return response.json() as Promise<WaitlistPlace>;
 }
 
 export async function fetchWaitlist(eventId: number): Promise<WaitlistPlace | null> {
-  const response = await fetch(`/api/events/${eventId}/waitlist`, {
-    credentials: "include",
-  });
+  const response = await call(`/api/events/${eventId}/waitlist`);
   if (response.status === 404) {
     return null;
   }
@@ -139,10 +180,9 @@ export async function fetchWaitlist(eventId: number): Promise<WaitlistPlace | nu
 }
 
 export async function holdSeats(eventId: number, seatIds: number[]): Promise<HeldSeats> {
-  const response = await fetch(`/api/events/${eventId}/holds`, {
+  const response = await call(`/api/events/${eventId}/holds`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "include",
     body: JSON.stringify({ seatIds }),
   });
   if (!response.ok) {
@@ -161,36 +201,32 @@ async function holdLimitReason(response: Response): Promise<string | null> {
 }
 
 export async function releaseOrderHolds(orderId: number): Promise<OrderView> {
-  const response = await fetch(`/api/orders/${orderId}/holds`, {
+  const response = await call(`/api/orders/${orderId}/holds`, {
     method: "DELETE",
-    credentials: "include",
   });
   return readJson<OrderView>(response);
 }
 
 export async function releaseSeatHold(orderId: number, seatId: number): Promise<OrderView> {
-  const response = await fetch(`/api/orders/${orderId}/holds/${seatId}`, {
+  const response = await call(`/api/orders/${orderId}/holds/${seatId}`, {
     method: "DELETE",
-    credentials: "include",
   });
   return readJson<OrderView>(response);
 }
 
 export async function attachPromoCode(orderId: number, code: string): Promise<OrderView> {
-  const response = await fetch(`/api/orders/${orderId}/promo-code`, {
+  const response = await call(`/api/orders/${orderId}/promo-code`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "include",
     body: JSON.stringify({ code }),
   });
   return readJson<OrderView>(response);
 }
 
 export async function checkout(orderId: number, seatIds: number[], mock: PaymentMock): Promise<void> {
-  const response = await fetch(`/api/orders/${orderId}/checkout`, {
+  const response = await call(`/api/orders/${orderId}/checkout`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "include",
     body: JSON.stringify({ seatIds, mock }),
   });
   if (!response.ok) {
@@ -199,39 +235,34 @@ export async function checkout(orderId: number, seatIds: number[], mock: Payment
 }
 
 export async function reconcilePayment(orderId: number, lookup: PaymentMock): Promise<OrderView> {
-  const response = await fetch(`/api/orders/${orderId}/reconcile`, {
+  const response = await call(`/api/orders/${orderId}/reconcile`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "include",
     body: JSON.stringify({ lookup }),
   });
   return readJson<OrderView>(response);
 }
 
 export async function cancelTickets(orderId: number, seatIds: number[], mock: PaymentMock): Promise<OrderView> {
-  const response = await fetch(`/api/orders/${orderId}/cancel`, {
+  const response = await call(`/api/orders/${orderId}/cancel`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "include",
     body: JSON.stringify({ seatIds, mock }),
   });
   return readJson<OrderView>(response);
 }
 
 export async function reconcileRefund(orderId: number, lookup: PaymentMock): Promise<OrderView> {
-  const response = await fetch(`/api/orders/${orderId}/refunds/reconcile`, {
+  const response = await call(`/api/orders/${orderId}/refunds/reconcile`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "include",
     body: JSON.stringify({ lookup }),
   });
   return readJson<OrderView>(response);
 }
 
 export async function fetchOrder(orderId: number): Promise<OrderView> {
-  const response = await fetch(`/api/orders/${orderId}`, {
-    credentials: "include",
-  });
+  const response = await call(`/api/orders/${orderId}`);
   return readJson<OrderView>(response);
 }
 
@@ -242,8 +273,6 @@ export type SaleTermsView = {
 };
 
 export async function fetchSaleTerms(): Promise<SaleTermsView> {
-  const response = await fetch("/api/sale-terms", {
-    credentials: "include",
-  });
+  const response = await call("/api/sale-terms");
   return readJson<SaleTermsView>(response);
 }
