@@ -418,6 +418,34 @@ class HoldApiTest {
     }
 
     @Test
+    void anotherCustomersSessionCannotSeeOrReleaseAHold() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        long a1 = seatId(opened, "A1");
+
+        ResponseEntity<JsonNode> held = ada.post("/api/events/" + eventId + "/holds", java.util.Map.of(
+                "seatIds", List.of(a1)));
+        assertThat(held.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long orderId = held.getBody().get("orderId").asLong();
+
+        JsonNode graceMap = grace.get("/api/events/" + eventId).getBody();
+        assertThat(graceMap.get("activeHoldOrderId").isNull()).isTrue();
+        assertThat(seatState(graceMap, "A1")).isEqualTo("held");
+        assertThat(seatField(graceMap, "A1", "yours").asBoolean()).isFalse();
+        assertThat(grace.delete("/api/orders/" + orderId + "/holds").getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(grace.get("/api/orders/" + orderId).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        JsonNode adaMap = ada.get("/api/events/" + eventId).getBody();
+        assertThat(adaMap.get("activeHoldOrderId").asLong()).isEqualTo(orderId);
+        assertThat(seatState(adaMap, "A1")).isEqualTo("held");
+        assertThat(seatField(adaMap, "A1", "yours").asBoolean()).isTrue();
+    }
+
+    @Test
     void holdingAfterTenMinutesWithoutOpeningTheSeatMapFreesTheExpiredHold() {
         ApiSession admin = signIn("admin@example.com");
         long eventId = createEvent(admin);
@@ -596,10 +624,14 @@ class HoldApiTest {
     }
 
     private static String seatState(JsonNode event, String label) {
+        return seatField(event, label, "state").asText();
+    }
+
+    private static JsonNode seatField(JsonNode event, String label, String field) {
         for (JsonNode section : event.get("sections")) {
             for (JsonNode seat : section.get("seats")) {
                 if (label.equals(seat.get("label").asText())) {
-                    return seat.get("state").asText();
+                    return seat.get(field);
                 }
             }
         }
