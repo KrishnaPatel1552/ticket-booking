@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lesson 4 — The system and the database</title>
+  <link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+  <main class="page">
+    <header class="mast">
+      <p class="kicker">Lesson 4 of 8 · Part 2 · about 12 minutes</p>
+      <h1>The system and the database</h1>
+      <p class="lede">Questions 6 to 15. He may ask how the pieces fit, and why a seat cannot be sold twice.</p>
+    </header>
+
+    <p class="parts">
+      <a href="0003-five-defenses.html">Part 1</a>
+      <a href="0004-system-and-database.html">Part 2</a>
+      <a href="0005-edge-cases.html">Part 3</a>
+      <a href="0006-how-we-tested.html">Part 4</a>
+      <a href="0007-what-you-did.html">Part 5</a>
+      <a href="0008-live-coding.html">Part 6</a>
+    </p>
+
+    <h2>6. Start to finish</h2>
+    <p>Ada signs in, searches Harbor Lights, and opens the map. She holds seats for 10 minutes. She checks out. We save a payment, then call the mock. Success turns the hold into a ticket. Decline frees the seat. Unknown leaves it held until a lookup.</p>
+    <p>The picture of the three programs is in <a href="0002-what-we-built.html">lesson 2</a>: the React site, the Spring Boot API, and PostgreSQL.</p>
+    <div class="say">
+      <p class="label">Say this</p>
+      <p>Sign in, pick seats, hold, pay. The API writes the rules. Postgres keeps the seats. The site only shows what the API returns.</p>
+    </div>
+
+    <h2>7. Why PostgreSQL</h2>
+    <p>We need three things a simple list in memory does not give us.</p>
+    <ul class="quiet">
+      <li>A unique rule that applies only to <strong>active</strong> rows. A released hold can stay in the table.</li>
+      <li>A row lock, so two requests can be forced to take turns.</li>
+      <li>A transaction, so a group of writes all stick or all undo.</li>
+    </ul>
+    <p>The tests use that same Postgres database, not a fake one. A fake database would not prove the unique rule.</p>
+    <div class="say">
+      <p class="label">Say this</p>
+      <p>I picked Postgres because the “one active seat” rule is a partial unique index, and the tests run against that real database.</p>
+    </div>
+
+    <h2>8. How the rows relate</h2>
+    <ol class="journey">
+      <li><strong>Venue</strong><span>Harbor Hall</span></li>
+      <li><strong>Section</strong><span>Orchestra, Balcony</span></li>
+      <li><strong>Seat</strong><span>A1, A2, and the rest</span></li>
+      <li><strong>Event</strong><span>Harbor Lights, one start time</span></li>
+      <li><strong>Order</strong><span>one open order per customer per event</span></li>
+      <li><strong>Hold or ticket</strong><span>one row. Becoming a ticket updates that row.</span></li>
+      <li><strong>Payment and refund</strong><span>money rows on that order</span></li>
+    </ol>
+    <p>A block is a separate row. A waitlist entry is a separate row. The same physical seat can be sold at a different event.</p>
+    <div class="say">
+      <p class="label">Say this</p>
+      <p>Venue, section, seat, event. A customer has one open order. That order has hold-or-ticket rows. Payment hangs off the order.</p>
+    </div>
+
+    <h2>9 and 12. One seat, sold once</h2>
+    <p>The index is named <code>one_active_event_seat</code>. It covers <code>(event_id, seat_id)</code> only where the row is active. A hold and a ticket are both active. A released hold is not, so it leaves the index and someone else can hold the seat later.</p>
+    <p>Two customers try the same seat at once. Both try to insert an active row. Postgres allows one. The other waits, then fails, and that request keeps no new hold.</p>
+    <p>A normal unique constraint would also block the old released rows. We need those rows to stay, so the index is partial: it ignores inactive rows. Postgres documents this shape in its partial-index examples.</p>
+    <div class="say">
+      <p class="label">Say this</p>
+      <p>Only one active hold or ticket can exist for a seat at an event. A released hold drops out of that index. The second customer’s insert fails.</p>
+    </div>
+
+    <h2>10. What a transaction is</h2>
+    <p>A transaction is a bundle of database writes. They all save, or they all undo. Nothing in the middle is visible as a finished fact.</p>
+    <p>We use one when we check the 6 and 12 caps and insert the holds. We use one when we save the pending payment. That payment transaction <strong>ends</strong> before the mock runs. Checkout itself is not one long transaction.</p>
+    <div class="say">
+      <p class="label">Say this</p>
+      <p>A transaction is all-or-nothing. I use one to save the holds, and one to save the payment. I end the payment transaction before I charge.</p>
+    </div>
+
+    <h2>13. Crash between payment and the ticket</h2>
+    <p>The payment row is already saved. The seat stays held. Opening the order, or a reconcile call, runs the lookup. Success writes the ticket and does not charge again. Decline frees the seat.</p>
+    <div class="say">
+      <p class="label">Say this</p>
+      <p>The crash leaves a saved payment and a held seat. A lookup finishes it. Success writes the ticket. Decline gives the seat back.</p>
+    </div>
+
+    <h2>14. Why the lock is not held for 10 minutes</h2>
+    <p>The 10 minutes are a timestamp on the saved hold, not a lock kept open. A lock lives only until the transaction ends. Holding one open while a person thinks would block other work, and the lock would vanish if the app died. The timestamp survives. Opening the event is what releases an expired hold that has no payment.</p>
+    <div class="say">
+      <p class="label">Say this</p>
+      <p>Ten minutes is a time on the row, not a lock I hold open. A lock that long would block everyone and die with the app.</p>
+    </div>
+
+    <h2>15. Deadlocks</h2>
+    <p>A deadlock is two requests each waiting for a lock the other holds. They never move. We lock seats in id order, lowest id first. If one request wants seats 2 and 9, and another wants 9 and 2, both lock 2 before 9. They take turns instead of waiting on each other.</p>
+    <div class="say">
+      <p class="label">Say this</p>
+      <p>I lock seats from the smallest id to the largest, so two bookings cannot grab the locks in opposite orders.</p>
+    </div>
+
+    <h2>Check</h2>
+    <section class="quiz" data-quiz>
+      <p class="q">Two customers insert an active hold on the same seat at the same event. What does the database do?</p>
+      <button type="button" data-correct="false" data-explain="Both do not win. The index allows one active row.">both buyers stay sitting</button>
+      <button type="button" data-correct="false" data-explain="The first customer is not rejected. Their insert is the one that fits.">first buyer gets dropped</button>
+      <button type="button" data-correct="false" data-explain="We do not split the seat. One person gets it.">seats split between them</button>
+      <button type="button" data-correct="true" data-explain="Right. One active row is allowed. The second insert fails and saves no hold.">second buyer gets denied</button>
+      <p class="why" data-why></p>
+    </section>
+
+    <section class="quiz" data-quiz>
+      <p class="q">Why is the unique index partial?</p>
+      <button type="button" data-correct="true" data-explain="Right. Released rows stay in the table, but they are inactive, so they leave the index.">ignores rows which ended</button>
+      <button type="button" data-correct="false" data-explain="It is not about speed first. It is about which rows must be unique.">makes each lookup faster</button>
+      <button type="button" data-correct="false" data-explain="A released hold must be allowed to exist. A full unique rule would block it.">blocks all expired holds</button>
+      <button type="button" data-correct="false" data-explain="The same seat at another event is a different key. That is the event id, not the partial rule.">mixes seats across shows</button>
+      <p class="why" data-why></p>
+    </section>
+
+    <section class="quiz" data-quiz>
+      <p class="q">Why don’t we keep a database lock open for the whole 10 minutes?</p>
+      <button type="button" data-correct="false" data-explain="Postgres can hold a lock. We choose not to hold it across a person’s think time.">postgres has no row lock</button>
+      <button type="button" data-correct="false" data-explain="The timestamp is the timer. The lock is a different tool.">this lock equals a clock</button>
+      <button type="button" data-correct="true" data-explain="Right. The time is a saved timestamp. An open lock would block others and vanish if the app died.">lock would block and die</button>
+      <button type="button" data-correct="false" data-explain="Ten minutes is real. We just do not implement it as an open lock.">ten minutes are not real</button>
+      <p class="why" data-why></p>
+    </section>
+
+    <section class="quiz" data-quiz>
+      <p class="q">The app crashes after the payment is saved and before the ticket is written. What is true?</p>
+      <button type="button" data-correct="false" data-explain="The charge mock may already have run. The seat is not free just because the ticket is missing.">crash makes the seat free</button>
+      <button type="button" data-correct="true" data-explain="Right. The payment row keeps the seat held. Lookup writes the ticket or releases it.">the payment keeps it held</button>
+      <button type="button" data-correct="false" data-explain="We do not charge again on the lookup. The mock already ran once.">charge runs a second time</button>
+      <button type="button" data-correct="false" data-explain="A crash is not an admin block.">an admin then blocks seat</button>
+      <p class="why" data-why></p>
+    </section>
+
+    <p>Next: <a href="0005-edge-cases.html">Part 3, the odd cases</a>. Primary source for the index: <a href="https://www.postgresql.org/docs/current/indexes-partial.html">PostgreSQL partial indexes</a>, example of one unique row among the rows that match a condition. The project note is <a href="../.scratch/take-home-route/research/double-sell-prevention.md">double-sell prevention</a>.</p>
+
+    <div class="ask">
+      <p>Ask if “partial index” still feels fuzzy. A good question: “What row is left behind when a hold is released?”</p>
+    </div>
+  </main>
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>

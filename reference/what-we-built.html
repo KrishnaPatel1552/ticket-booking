@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>What we built — interview card</title>
+  <link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+  <main class="page">
+    <header class="mast">
+      <p class="kicker">Reference · print this</p>
+      <h1>What we built</h1>
+      <p class="lede">A React customer site, a Spring Boot API, and PostgreSQL. Admin work is API-only.</p>
+    </header>
+
+    <ol class="stack">
+      <li><strong>Site · 5173</strong><span>sign in, search, map, hold, checkout, tickets, waitlist</span></li>
+      <li><strong>API · 8080</strong><span>the rules · the site proxies /api here</span></li>
+      <li><strong>PostgreSQL</strong><span>Flyway schema · tests use a second database</span></li>
+    </ol>
+
+    <h2>Customer path</h2>
+    <ol class="journey">
+      <li><strong>Sign in</strong><span>then search by name</span></li>
+      <li><strong>Seat map</strong><span>hold, release, or join a sold-out waitlist</span></li>
+      <li><strong>Check out</strong><span>mock success, decline, timeout, or unknown</span></li>
+      <li><strong>Tickets</strong><span>cancel some or all · reconcile an unknown refund</span></li>
+    </ol>
+
+    <h2>Harbor Lights, 17 October 2026</h2>
+    <div class="receipt">
+      <h3>Ada holds Orchestra A1 and A2</h3>
+      <table>
+        <tbody>
+          <tr><td>Early-bird, two seats</td><td>$80.00</td></tr>
+          <tr><td>Group rate (needs 4)</td><td>$0.00</td></tr>
+          <tr><td>Service fee</td><td>$1.00</td></tr>
+          <tr class="total"><td>Pays</td><td>$81.00</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Four early-bird seats: $160.00 − $5.00 group rate + $1.00 fee = $156.00. Standard tier outside the window is $50.00 a seat. A hold lasts 10 minutes. A waitlist hold lasts 15. Success writes tickets. Decline frees the seats. Unknown stays held until lookup.</p>
+
+    <h2>Admin, no screen</h2>
+    <p>Create an event, a price tier, or a promo code. Block or release a seat. Cancel or reschedule. Exceptional refund. Sales counts. Audit entries. Each override needs a reason.</p>
+
+    <h2>Not in this build</h2>
+    <p>Setup screens, an admin site, a sales chart, a live-updating map, a real card charge, tax, a second promo, a percent-off promo, and a scheduler.</p>
+
+    <p class="source">Taught in <a href="../lessons/0002-what-we-built.html">lesson 2</a>. Seat moves: <a href="seat-states.html">Seat states</a>.</p>
+  </main>
+</body>
+</html>

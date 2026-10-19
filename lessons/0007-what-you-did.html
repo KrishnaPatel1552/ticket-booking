@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lesson 7 — What you did</title>
+  <link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+  <main class="page">
+    <header class="mast">
+      <p class="kicker">Lesson 7 of 8 · Part 5 · about 12 minutes</p>
+      <h1>What you did</h1>
+      <p class="lede">Questions 36 to 45. Be honest about Cursor. Then show you can explain one method with no editor help.</p>
+    </header>
+
+    <p class="parts">
+      <a href="0003-five-defenses.html">Part 1</a>
+      <a href="0004-system-and-database.html">Part 2</a>
+      <a href="0005-edge-cases.html">Part 3</a>
+      <a href="0006-how-we-tested.html">Part 4</a>
+      <a href="0007-what-you-did.html">Part 5</a>
+      <a href="0008-live-coding.html">Part 6</a>
+    </p>
+
+    <div class="trap">
+      <p>Do not say you typed every line. The notes say Cursor agents wrote the application and the tests from the spec. Your job is the decisions, the reading, and the live change.</p>
+    </div>
+
+    <h2>36, 37, and 38. How you used Cursor</h2>
+    <p>You used Cursor to implement the API, the site, and the tests from the written rules. You accepted the hard rules in the closed tickets: payment saved before the charge, the caps, the refund bands, one active seat.</p>
+    <p>You check AI code by reading the path and by running the tests. A green test is not enough if you cannot say which rule it proves. For the payment path, the check is: the row exists before the mock, and a crash does not free the seat.</p>
+    <div class="say"><p class="label">Say this</p><p>Cursor wrote the code from the spec. I decided the rules and I checked them in the tests. I can walk a method without the agent.</p></div>
+
+    <h2>39 and 40. Explain one method, then change it</h2>
+    <p>If he points at a method, use this shape. Example: <code>RefundBand.cents</code>.</p>
+    <ol class="moves">
+      <li>It takes the ticket’s net, the time now, and the show time.</li>
+      <li>It measures the real gap between those two instants.</li>
+      <li>If the gap is 168 hours or more, it returns the whole net.</li>
+      <li>If the gap is still at least 48 hours, it returns half the net, rounded up.</li>
+      <li>Otherwise it returns zero. It does not add the fee. The caller does that only for an event cancel.</li>
+    </ol>
+    <p>A live change means: name the rule that must stay true, change the smallest bit of code, then change the test that locks the old edge. Part 6 practices that out loud.</p>
+    <div class="say"><p class="label">Say this</p><p>This method only picks the band from two instants. It does not know about the fee. If I change 48 hours, I change the test at exactly 48 hours in the same edit.</p></div>
+
+    <h2>41. The hard bug</h2>
+    <p>Tell the bug he already rejected, because it is the real one. First design: payment succeeds, the program stops before the ticket, the hold ends, someone else gets the seat. The fix: save the payment first, keep the seat while that payment is open, finish it only by lookup.</p>
+    <div class="say"><p class="label">Say this</p><p>The bad version let a paid customer lose the seat. The fix saves the payment first and will not free the seat until we know the charge failed.</p></div>
+
+    <h2>42, 43, and 44. Two more days, and why this shape</h2>
+    <p>A simpler design would keep a database lock open for 10 minutes, or store only a yes-or-no on the seat. The lock dies if the app dies and blocks other work. A yes-or-no cannot keep a released hold in history. The timestamp plus the partial index does both.</p>
+    <p>With two more days, the next work from the notes is: admin screens, a sales screen, a seat map that updates while it is open, then a real card charge and tax. A background worker would release expired holds and finish unknown payments without waiting for someone to open the event.</p>
+    <p>Left incomplete on purpose: no admin site, no setup screens, no live map, no real charge, no tax, no second promo, no scheduler. Say that list without saying sorry.</p>
+    <div class="say"><p class="label">Say this</p><p>I chose a saved timestamp and a partial index over a lock held for ten minutes. The cuts are screens, a real charge, and a worker. The rules are what I finished.</p></div>
+
+    <h2>45. Ready for production?</h2>
+    <p>Not yet. The tests can pass and the app can still be a demo. Production needs a real card charge, a worker for unknown payments and expired holds, and the same race tests still passing on those paths. Tax is a product cut, not a test gap.</p>
+    <div class="say"><p class="label">Say this</p><p>It is ready to explain and to test. It is not ready to charge a real card or to finish an unknown payment with nobody watching.</p></div>
+
+    <h2>Check</h2>
+    <section class="quiz" data-quiz>
+      <p class="q">He asks which code you typed yourself. What is the honest answer?</p>
+      <button type="button" data-correct="false" data-explain="The notes say agents wrote the implementation. Do not claim every line.">I typed every single line</button>
+      <button type="button" data-correct="true" data-explain="Right. Agents wrote from the spec. You own the rules and the check.">agents coded it I checked</button>
+      <button type="button" data-correct="false" data-explain="You did decide the closed-ticket rules. Do not give those away.">the agent chose the rules</button>
+      <button type="button" data-correct="false" data-explain="A green suite is part of the check, not a reason to skip reading.">I skipped all the reading</button>
+      <p class="why" data-why></p>
+    </section>
+
+    <section class="quiz" data-quiz>
+      <p class="q">What does RefundBand return at exactly 48 hours?</p>
+      <button type="button" data-correct="false" data-explain="Zero is under 48 hours. Exactly 48 is still the half band.">zero of that ticket net</button>
+      <button type="button" data-correct="false" data-explain="The full net starts at 168 hours, not at 48.">full net on that ticket</button>
+      <button type="button" data-correct="true" data-explain="Right. At 48 hours or more, but under 168, it returns half the net, rounded up. No fee.">half net rounded up now</button>
+      <button type="button" data-correct="false" data-explain="The fee is not added in this method. Event cancel adds it outside.">half plus the whole fee</button>
+      <p class="why" data-why></p>
+    </section>
+
+    <section class="quiz" data-quiz>
+      <p class="q">Why not hold a database lock for the whole 10 minutes?</p>
+      <button type="button" data-correct="false" data-explain="It would block other work, and it would vanish if the app died.">using locks is much safer</button>
+      <button type="button" data-correct="true" data-explain="Right. The timestamp survives. An open lock blocks people and dies with the process.">it blocks and dies faster</button>
+      <button type="button" data-correct="false" data-explain="Postgres can lock a row. We choose a timestamp instead.">postgres has no such lock</button>
+      <button type="button" data-correct="false" data-explain="Ten minutes is the product rule. The storage is a timestamp.">open minutes are not real</button>
+      <p class="why" data-why></p>
+    </section>
+
+    <section class="quiz" data-quiz>
+      <p class="q">What would make you call it ready for production?</p>
+      <button type="button" data-correct="false" data-explain="A green suite on the mock is the demo. Production still needs a real charge and a worker.">a green suite means ready</button>
+      <button type="button" data-correct="false" data-explain="Admin screens are a cut. They are not the charge path.">admin pages get added now</button>
+      <button type="button" data-correct="false" data-explain="Tax is a later pricing rule. It does not finish an unknown payment.">charge tax gets added now</button>
+      <button type="button" data-correct="true" data-explain="Right. A real charge, a worker for unknown and expiry, and the race tests still passing.">real charge plus a worker</button>
+      <p class="why" data-why></p>
+    </section>
+
+    <p>Next: <a href="0008-live-coding.html">Part 6, the live changes</a>. The cuts are the section “What was left out, and why” in <a href="../NOTES.md">NOTES.md</a>.</p>
+
+    <div class="ask">
+      <p>Ask for a second method in the same shape if he is likely to open a different file. A good one: “Walk me through the cap check.”</p>
+    </div>
+  </main>
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Seat states — interview card</title>
+  <link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+  <main class="page">
+    <header class="mast">
+      <p class="kicker">Reference · print this</p>
+      <h1>Seat states</h1>
+      <p class="lede">A seat at one event is free, held, blocked, or a ticket. Payment status is not a fifth state.</p>
+    </header>
+
+    <ul class="states">
+      <li><strong>Free</strong><span>can be held or blocked</span></li>
+      <li><strong>Held</strong><span>one customer, one clock</span></li>
+      <li><strong>Blocked</strong><span>admin, with a reason</span></li>
+      <li><strong>Ticket</strong><span>does not free here</span></li>
+    </ul>
+
+    <h2>While a payment is open</h2>
+    <p>Pending, unknown, and succeeded-without-a-ticket are payment statuses. The seat stays held until lookup returns success or decline.</p>
+
+    <h2>Allowed moves</h2>
+    <ol class="moves">
+      <li>Free becomes held when the caps allow it.</li>
+      <li>Held becomes free when the clock runs out and no payment row exists, when a reschedule ends a bare hold, or when the payment finishes declined.</li>
+      <li>Checkout on a live hold inserts the payment row and leaves the seat held. If any seat is no longer that customer's live hold, the submit fails and writes no payment row.</li>
+      <li>Succeeded, including a lookup that returns success, moves held to a ticket.</li>
+      <li>Unknown leaves the seat held until that lookup.</li>
+      <li>An admin blocks a free seat, and releases a block back to free.</li>
+      <li>A hold and a block on the same seat do not change it. The request that locks the seat first stays. The other fails.</li>
+      <li>A ticket does not become free in this machine.</li>
+    </ol>
+
+    <p>Sentence to memorize: “A seat at an event is free, held, blocked, or a ticket. If a payment row is pending or unknown, the seat is still held.”</p>
+
+    <p class="source">Source: <a href="../.scratch/booking-spec/issues/06-booking-state-machine.md">Booking state machine</a>. Taught in <a href="../lessons/0001-seat-states.html">lesson 1</a>. Next: the hold clock, in the same ticket’s checkout section and <a href="../.scratch/booking-spec/issues/05-checkout-lifetime.md">Checkout lifetime</a>.</p>
+  </main>
+</body>
+</html>

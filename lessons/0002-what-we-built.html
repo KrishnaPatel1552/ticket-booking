@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lesson 2 — What we built</title>
+  <link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+  <main class="page">
+    <header class="mast">
+      <p class="kicker">Lesson 2 · The build · about 10 minutes</p>
+      <h1>What we built</h1>
+      <p class="lede">Two programs share one database. The customer can book Harbor Lights in the browser. An admin does the rest by calling the API. There is no admin site.</p>
+    </header>
+
+    <p>Interview answers come after this picture is solid. The mission is still Sachin’s conversation. This lesson is the system you would be explaining.</p>
+
+    <h2>The three pieces</h2>
+    <ol class="stack">
+      <li><strong>React site</strong><span>port 5173 · the screens a customer sees</span></li>
+      <li><strong>Spring Boot API</strong><span>port 8080 · every rule lives here</span></li>
+      <li><strong>PostgreSQL</strong><span>the seats, holds, payments, and tickets</span></li>
+    </ol>
+    <p>The site sends <code>/api</code> to the API. Flyway creates the tables. The tests call that same API against a real database, including two customers at once. The last full run in the README was 135 tests, all passing.</p>
+
+    <h2>What a customer can do</h2>
+    <ol class="journey">
+      <li><strong>Sign in</strong><span>email and password · caps apply to that account</span></li>
+      <li><strong>Search</strong><span>by event name</span></li>
+      <li><strong>Open the seat map</strong><span>sections, prices, free / held / blocked / ticket</span></li>
+      <li><strong>Hold seats</strong><span>10 minutes · or release the hold · or change seats</span></li>
+      <li><strong>Check out</strong><span>pick a mock result: success, decline, timeout, or unknown</span></li>
+      <li><strong>Open tickets</strong><span>cancel some or all · the refund uses the same four mock results</span></li>
+    </ol>
+    <p>If every seat is taken, the map offers <strong>Join waitlist</strong>. When a seat frees, the next person gets a hold that lasts 15 minutes, and the map says it is held for them. The map reloads after that customer’s own action. It does not update by itself while the page sits open.</p>
+
+    <h2>Example: Ada buys two seats</h2>
+    <p>Starter data is one venue and one event. Harbor Hall has Orchestra seats A1–A12 and Balcony seats B1–B8. The event is Harbor Lights, 14 December 2026 at 8:00pm Eastern. The Standard tier is $50.00. Inside the early-bird window the price is $40.00. On 17 October 2026 that window is open, so the map shows $40.00.</p>
+    <p>Ada signs in, searches “Harbor Lights,” and opens the map. She selects Orchestra A1 and A2 and presses Hold seats. Those two seats are hers for 10 minutes. Grace cannot take them.</p>
+
+    <div class="receipt">
+      <h3>Ada · Harbor Lights · A1 and A2</h3>
+      <p>Early-bird window is open. Two seats are under the group-rate minimum of 4.</p>
+      <table>
+        <tbody>
+          <tr><td>A1 early-bird</td><td>$40.00</td></tr>
+          <tr><td>A2 early-bird</td><td>$40.00</td></tr>
+          <tr><td>Group rate</td><td>$0.00</td></tr>
+          <tr><td>Promo code</td><td>none</td></tr>
+          <tr><td>Service fee</td><td>$1.00</td></tr>
+          <tr class="total"><td>She pays</td><td>$81.00</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>On the Hold screen she can attach one promo code, then Check out. She chooses the mock result <strong>success</strong>. The API writes the payment, then the tickets. A1 and A2 are no longer a hold. They are tickets on her order.</p>
+    <p>If she had chosen <strong>decline</strong>, she would have no ticket and the seats would be free again. If she had chosen <strong>unknown</strong>, the seats would stay held and the Check out screen would offer Reconcile payment. A later lookup of success writes the tickets without charging again.</p>
+
+    <div class="receipt">
+      <h3>Same event, if she holds four seats</h3>
+      <p>A1–A4. The group rate is $5.00 off the tickets once, not off each seat. The fee stays $1.00 and is not discounted.</p>
+      <table>
+        <tbody>
+          <tr><td>4 × early-bird $40.00</td><td>$160.00</td></tr>
+          <tr><td>Group rate</td><td>−$5.00</td></tr>
+          <tr><td>Service fee</td><td>$1.00</td></tr>
+          <tr class="total"><td>She pays</td><td>$156.00</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>What an admin can do</h2>
+    <p>There is no admin website. An admin account calls the API. Each override needs a reason, and that call writes an audit entry. The overrides are: block a free seat, release a block, cancel the event, reschedule it, and issue an exceptional refund. An admin can also create an event, a price tier, and a promo code, and can read a small sales summary for one event.</p>
+    <p>Starter data already created Harbor Hall, the seats, Harbor Lights, and the Standard tier. Those setup screens were left out on purpose.</p>
+
+    <h2>Left out on purpose</h2>
+    <ul class="quiet">
+      <li>No screens for venue, section, seat, event, price tier, or promo code.</li>
+      <li>No sales chart. One API read returns the counts.</li>
+      <li>No live seat map. No real card charge. No tax.</li>
+      <li>No second promo code, and no percent-off promo.</li>
+      <li>No scheduler. Opening the event releases an expired hold that has no payment. A person finishes an unknown payment by reconciling it.</li>
+    </ul>
+
+    <h2>Check the picture</h2>
+    <p>Cover the page above. Each choice is the same length.</p>
+
+    <section class="quiz" data-quiz>
+      <p class="q">Ada has just signed in. What does the site show her first?</p>
+      <button type="button" data-correct="true" data-explain="Right. After sign-in she searches events by name. Harbor Lights is starter data, not a hardcoded first screen.">a search for the events</button>
+      <button type="button" data-correct="false" data-explain="There is no admin site. Her first screen is search.">an admin page for sales</button>
+      <button type="button" data-correct="false" data-explain="Tickets come after a successful checkout. Her first screen is search.">a refund form for seats</button>
+      <button type="button" data-correct="false" data-explain="Blocking a seat is an admin API call. Her first screen is search.">block form for one seat</button>
+      <p class="why" data-why></p>
+    </section>
+
+    <section class="quiz" data-quiz>
+      <p class="q">Ada holds A1 and A2 during the early-bird window, with no promo. What does she pay?</p>
+      <button type="button" data-correct="false" data-explain="Two early-bird seats are $80. The $1 fee is still added. Group rate needs four seats, so it is $0. She pays $81.">eighty with the fee off</button>
+      <button type="button" data-correct="false" data-explain="The group rate needs four seats. Two seats do not get the $5 off. She pays $81.">seventy five and a rate</button>
+      <button type="button" data-correct="true" data-explain="Right. $40 + $40, no group rate, no promo, plus the $1 fee. $81.">eighty one plus the fee</button>
+      <button type="button" data-correct="false" data-explain="$50 is the Standard tier outside early-bird. On 17 October the window is open, so each seat is $40, and the total is $81.">full price plus the fee</button>
+      <p class="why" data-why></p>
+    </section>
+
+    <section class="quiz" data-quiz>
+      <p class="q">Who creates a promo code in this build?</p>
+      <button type="button" data-correct="false" data-explain="The Hold screen can attach a code that already exists. It does not create one.">Ada from the hold screen</button>
+      <button type="button" data-correct="false" data-explain="Starter data does not seed a promo code. An admin creates one through the API.">data seeded at app start</button>
+      <button type="button" data-correct="false" data-explain="There is no admin website. The call is an authenticated API request.">admin works on a website</button>
+      <button type="button" data-correct="true" data-explain="Right. An admin creates a promo code with an authenticated API call. The customer site only attaches one.">admin calls the HTTP API</button>
+      <p class="why" data-why></p>
+    </section>
+
+    <section class="quiz" data-quiz>
+      <p class="q">Ada’s checkout mock returns unknown. Where are A1 and A2?</p>
+      <button type="button" data-correct="false" data-explain="Unknown does not write tickets. The seats stay on her hold until a lookup says success or decline.">now tickets on her order</button>
+      <button type="button" data-correct="true" data-explain="Right. Unknown keeps the seats held. Reconcile payment is how that result finishes.">still held for her today</button>
+      <button type="button" data-correct="false" data-explain="Decline would free them. Unknown does not.">seats free for Grace now</button>
+      <button type="button" data-correct="false" data-explain="Unknown is not an admin block.">now blocked for a reason</button>
+      <p class="why" data-why></p>
+    </section>
+
+    <h2>Keep this card</h2>
+    <p>The one-page map is <a href="../reference/what-we-built.html">What we built</a>. The run steps and the starter accounts are in the <a href="../README.md">README</a>. The cuts, in the words the submission uses, are in <a href="../NOTES.md">NOTES.md</a>.</p>
+    <p>When you can retell Ada’s two seats without this page, the next session can go back to how a seat moves. That lesson is already written: <a href="0001-seat-states.html">What state is the seat in?</a></p>
+
+    <div class="ask">
+      <p>Ask follow-up questions before any interview drill. Useful ones: “Show me the four-seat receipt again,” “What does Grace see on A1 while Ada holds it?” and “Which of these screens have I not opened?”</p>
+    </div>
+
+    <p class="source">Primary source for what shipped: <a href="../README.md">README</a> and <a href="../NOTES.md">NOTES.md</a>. Prices and the venue come from <a href="../src/main/java/ticketbooking/starter/StarterData.java">StarterData.java</a>. Screen order comes from <a href="../frontend/src/App.tsx">App.tsx</a>.</p>
+  </main>
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>
