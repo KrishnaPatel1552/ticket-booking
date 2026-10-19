@@ -585,9 +585,9 @@ class EventCancellationApiTest {
                 .isEqualTo(HttpStatus.OK);
         JsonNode opened = ada.get("/api/events/" + eventId).getBody();
         long adaFirst = sell(ada, eventId, opened, List.of("A1", "A2", "A3", "A4", "A5", "A6"));
-        sell(ada, eventId, opened, List.of("A7", "A8", "A9", "A10", "A11", "A12"));
-        sell(grace, eventId, opened, List.of("B1", "B2", "B3", "B4", "B5", "B6"));
-        sell(grace, eventId, opened, List.of("B7", "B8"));
+        sell(ada, eventId, opened, List.of("A7", "A8", "A9", "A10", "A11"));
+        sell(grace, eventId, opened, List.of("A12", "B1", "B2", "B3", "B4", "B5"));
+        sell(grace, eventId, opened, List.of("B6", "B7", "B8"));
         assertThat(ada.post("/api/events/" + eventId + "/waitlist", java.util.Map.of()).getStatusCode())
                 .isEqualTo(HttpStatus.OK);
         assertThat(grace.post("/api/events/" + eventId + "/waitlist", java.util.Map.of()).getStatusCode())

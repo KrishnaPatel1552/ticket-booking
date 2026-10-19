@@ -5,6 +5,7 @@ import ticketbooking.event.Event;
 import ticketbooking.event.EventRepository;
 import ticketbooking.hold.EventSeatRepository;
 import ticketbooking.hold.ExpiredHoldRelease;
+import ticketbooking.hold.HoldLimitExceeded;
 import ticketbooking.signin.Account;
 import ticketbooking.signin.AccountRepository;
 import ticketbooking.venue.Seat;
@@ -20,6 +21,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class JoinWaitlist {
+
+    private static final int EVENT_CAP = 12;
 
     private final AccountRepository accounts;
     private final EventRepository events;
@@ -65,6 +68,10 @@ public class JoinWaitlist {
         if (event.isCancelled() || anySeatFree(event)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
+        lockCustomerEvent(customer.getId(), event.getId());
+        if (eventSeats.countActiveForCustomerAtEvent(customer.getId(), event.getId()) >= EVENT_CAP) {
+            throw new HoldLimitExceeded("event-limit");
+        }
         try {
             WaitlistEntry entry = entries.save(new WaitlistEntry(event, customer));
             entityManager.flush();
@@ -96,6 +103,27 @@ public class JoinWaitlist {
                 .findFirst()
                 .orElse(null);
         return new WaitlistView((int) place, orderId);
+    }
+
+    private void lockCustomerEvent(long customerId, long eventId) {
+        entityManager.createNativeQuery("""
+                insert into customer_event (customer_id, event_id)
+                values (:customerId, :eventId)
+                on conflict (customer_id, event_id) do nothing
+                """)
+                .setParameter("customerId", customerId)
+                .setParameter("eventId", eventId)
+                .executeUpdate();
+        entityManager.createNativeQuery("""
+                select customer_id
+                from customer_event
+                where customer_id = :customerId
+                  and event_id = :eventId
+                for update
+                """)
+                .setParameter("customerId", customerId)
+                .setParameter("eventId", eventId)
+                .getSingleResult();
     }
 
     private boolean anySeatFree(Event event) {

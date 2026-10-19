@@ -26,6 +26,34 @@ class WaitlistApiTest {
     private TestRestTemplate rest;
 
     @Test
+    void customerAtTheEventTicketLimitCannotJoinAndASecondJoinDoesNotAddAnotherEntry() {
+        ApiSession admin = signIn("admin@example.com");
+        long eventId = createEvent(admin);
+        ApiSession ada = signIn("ada@example.com");
+        ApiSession grace = signIn("grace@example.com");
+        JsonNode opened = ada.get("/api/events/" + eventId).getBody();
+        sell(ada, eventId, opened, List.of("A1", "A2", "A3", "A4", "A5", "A6"));
+        sell(ada, eventId, opened, List.of("A7", "A8", "A9", "A10", "A11", "A12"));
+        sell(grace, eventId, opened, List.of("B1", "B2", "B3", "B4", "B5", "B6"));
+        sell(grace, eventId, opened, List.of("B7", "B8"));
+
+        ResponseEntity<JsonNode> refused = ada.post("/api/events/" + eventId + "/waitlist", java.util.Map.of());
+
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(refused.getBody().get("reason").asText()).isEqualTo("event-limit");
+        assertThat(ada.get("/api/events/" + eventId + "/waitlist").getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        ResponseEntity<JsonNode> joined = grace.post("/api/events/" + eventId + "/waitlist", java.util.Map.of());
+        assertThat(joined.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(joined.getBody().get("place").asInt()).isEqualTo(1);
+
+        ResponseEntity<JsonNode> duplicate = grace.post("/api/events/" + eventId + "/waitlist", java.util.Map.of());
+        assertThat(duplicate.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(duplicate.getBody().path("reason").isMissingNode()).isTrue();
+        assertThat(grace.get("/api/events/" + eventId + "/waitlist").getBody().get("place").asInt()).isEqualTo(1);
+    }
+
+    @Test
     void customerJoinsTheWaitlistOnlyWhenNoSeatIsLeftToSell() {
         ApiSession admin = signIn("admin@example.com");
         long eventId = createEvent(admin);
@@ -40,9 +68,9 @@ class WaitlistApiTest {
         assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A1")).isEqualTo("free");
 
         sell(ada, eventId, opened, List.of("A1", "A2", "A3", "A4", "A5", "A6"));
-        sell(ada, eventId, opened, List.of("A7", "A8", "A9", "A10", "A11", "A12"));
-        sell(grace, eventId, opened, List.of("B1", "B2", "B3", "B4", "B5", "B6"));
-        sell(grace, eventId, opened, List.of("B7", "B8"));
+        sell(ada, eventId, opened, List.of("A7", "A8", "A9", "A10"));
+        sell(grace, eventId, opened, List.of("A11", "A12", "B1", "B2", "B3", "B4"));
+        sell(grace, eventId, opened, List.of("B5", "B6", "B7", "B8"));
 
         ResponseEntity<JsonNode> adaJoined = ada.post("/api/events/" + eventId + "/waitlist", java.util.Map.of());
         ResponseEntity<JsonNode> graceJoined = grace.post("/api/events/" + eventId + "/waitlist", java.util.Map.of());
@@ -71,9 +99,9 @@ class WaitlistApiTest {
         ApiSession grace = signIn("grace@example.com");
         JsonNode opened = ada.get("/api/events/" + eventId).getBody();
         long adaOrder = sell(ada, eventId, opened, List.of("A1", "A2", "A3", "A4", "A5", "A6"));
-        sell(ada, eventId, opened, List.of("A7", "A8", "A9", "A10", "A11", "A12"));
-        sell(grace, eventId, opened, List.of("B1", "B2", "B3", "B4", "B5", "B6"));
-        sell(grace, eventId, opened, List.of("B7", "B8"));
+        sell(ada, eventId, opened, List.of("A7", "A8", "A9", "A10", "A11"));
+        sell(grace, eventId, opened, List.of("A12", "B1", "B2", "B3", "B4", "B5"));
+        sell(grace, eventId, opened, List.of("B6", "B7", "B8"));
         assertThat(ada.post("/api/events/" + eventId + "/waitlist", java.util.Map.of()).getStatusCode())
                 .isEqualTo(HttpStatus.OK);
         assertThat(grace.post("/api/events/" + eventId + "/waitlist", java.util.Map.of()).getStatusCode())
@@ -111,9 +139,9 @@ class WaitlistApiTest {
         ApiSession grace = signIn("grace@example.com");
         JsonNode opened = ada.get("/api/events/" + eventId).getBody();
         sell(ada, eventId, opened, List.of("A1", "A2", "A3", "A4", "A5", "A6"));
-        sell(ada, eventId, opened, List.of("A7", "A8", "A9", "A10", "A11", "A12"));
-        long graceOrder = sell(grace, eventId, opened, List.of("B1", "B2", "B3", "B4", "B5", "B6"));
-        sell(grace, eventId, opened, List.of("B7", "B8"));
+        sell(ada, eventId, opened, List.of("A7", "A8", "A9", "A10", "A11"));
+        long graceOrder = sell(grace, eventId, opened, List.of("A12", "B1", "B2", "B3", "B4", "B5"));
+        sell(grace, eventId, opened, List.of("B6", "B7", "B8"));
         assertThat(ada.post("/api/events/" + eventId + "/waitlist", java.util.Map.of()).getStatusCode())
                 .isEqualTo(HttpStatus.OK);
         assertThat(grace.post("/api/events/" + eventId + "/waitlist", java.util.Map.of()).getStatusCode())
@@ -121,17 +149,33 @@ class WaitlistApiTest {
         assertThat(ada.post("/api/test/clock", java.util.Map.of("instant", "2026-10-16T16:00:00Z")).getStatusCode())
                 .isEqualTo(HttpStatus.OK);
 
-        ResponseEntity<JsonNode> cancelled = grace.post("/api/orders/" + graceOrder + "/cancel", java.util.Map.of(
+        ResponseEntity<JsonNode> first = grace.post("/api/orders/" + graceOrder + "/cancel", java.util.Map.of(
                 "seatIds", List.of(seatId(opened, "B1")),
                 "mock", "success"));
 
-        assertThat(cancelled.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "B1")).isEqualTo("held");
-        assertThat(ada.get("/api/events/" + eventId + "/waitlist").getBody().path("orderId").isNull()).isTrue();
+        JsonNode adaHolding = ada.get("/api/events/" + eventId + "/waitlist").getBody();
+        assertThat(adaHolding.get("place").asInt()).isEqualTo(1);
+        JsonNode adaOffer = ada.get("/api/orders/" + adaHolding.get("orderId").asLong()).getBody();
+        assertThat(holdLabeled(adaOffer, "B1").get("heldUntil").asText()).isEqualTo("2026-10-16T16:15:00Z");
+        assertThat(grace.get("/api/events/" + eventId + "/waitlist").getBody().path("orderId").isNull()).isTrue();
+
+        ResponseEntity<JsonNode> second = grace.post("/api/orders/" + graceOrder + "/cancel", java.util.Map.of(
+                "seatIds", List.of(seatId(opened, "B2")),
+                "mock", "success"));
+
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(seatState(grace.get("/api/events/" + eventId).getBody(), "B1")).isEqualTo("held");
+        assertThat(seatState(grace.get("/api/events/" + eventId).getBody(), "B2")).isEqualTo("held");
+        JsonNode adaStill = ada.get("/api/events/" + eventId + "/waitlist").getBody();
+        assertThat(adaStill.get("place").asInt()).isEqualTo(1);
+        assertThat(adaStill.get("orderId").asLong()).isEqualTo(adaHolding.get("orderId").asLong());
+        assertThat(ada.get("/api/orders/" + adaStill.get("orderId").asLong()).getBody().get("holds")).hasSize(1);
         JsonNode graceLine = grace.get("/api/events/" + eventId + "/waitlist").getBody();
         assertThat(graceLine.get("place").asInt()).isEqualTo(2);
         JsonNode offer = grace.get("/api/orders/" + graceLine.get("orderId").asLong()).getBody();
-        assertThat(holdLabeled(offer, "B1").get("heldUntil").asText()).isEqualTo("2026-10-16T16:15:00Z");
+        assertThat(holdLabeled(offer, "B2").get("heldUntil").asText()).isEqualTo("2026-10-16T16:15:00Z");
         assertThat(offer.get("tickets")).isEmpty();
     }
 
@@ -145,13 +189,19 @@ class WaitlistApiTest {
                 .isEqualTo(HttpStatus.OK);
         JsonNode opened = ada.get("/api/events/" + eventId).getBody();
         sell(ada, eventId, opened, List.of("A1", "A2", "A3", "A4", "A5", "A6"));
-        sell(ada, eventId, opened, List.of("A7", "A8", "A9", "A10", "A11", "A12"));
-        long graceTickets = sell(grace, eventId, opened, List.of("B7", "B8"));
+        sell(ada, eventId, opened, List.of("A7", "A8", "A9", "A10", "A11"));
+        long graceTickets = sell(grace, eventId, opened, List.of("A12", "B7", "B8"));
         hold(grace, eventId, opened, List.of("B1", "B2", "B3", "B4", "B5", "B6"));
         assertThat(ada.post("/api/events/" + eventId + "/waitlist", java.util.Map.of()).getStatusCode())
                 .isEqualTo(HttpStatus.OK);
         assertThat(grace.post("/api/events/" + eventId + "/waitlist", java.util.Map.of()).getStatusCode())
                 .isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<JsonNode> taken = grace.post("/api/orders/" + graceTickets + "/cancel", java.util.Map.of(
+                "seatIds", List.of(seatId(opened, "A12")),
+                "mock", "success"));
+        assertThat(taken.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(seatState(ada.get("/api/events/" + eventId).getBody(), "A12")).isEqualTo("held");
 
         ResponseEntity<JsonNode> cancelled = grace.post("/api/orders/" + graceTickets + "/cancel", java.util.Map.of(
                 "seatIds", List.of(seatId(opened, "B7")),
@@ -161,9 +211,11 @@ class WaitlistApiTest {
         JsonNode map = ada.get("/api/events/" + eventId).getBody();
         assertThat(seatState(map, "B7")).isEqualTo("free");
         assertThat(seatState(map, "A1")).isEqualTo("ticket");
+        assertThat(seatState(map, "A12")).isEqualTo("held");
         assertThat(seatState(map, "B1")).isEqualTo("held");
-        assertThat(ada.get("/api/events/" + eventId + "/waitlist").getBody().get("place").asInt()).isEqualTo(1);
-        assertThat(ada.get("/api/events/" + eventId + "/waitlist").getBody().path("orderId").isNull()).isTrue();
+        JsonNode adaLine = ada.get("/api/events/" + eventId + "/waitlist").getBody();
+        assertThat(adaLine.get("place").asInt()).isEqualTo(1);
+        assertThat(ada.get("/api/orders/" + adaLine.get("orderId").asLong()).getBody().get("holds")).hasSize(1);
         assertThat(grace.get("/api/events/" + eventId + "/waitlist").getBody().get("place").asInt()).isEqualTo(2);
         assertThat(grace.get("/api/events/" + eventId + "/waitlist").getBody().path("orderId").isNull()).isTrue();
     }
@@ -178,30 +230,30 @@ class WaitlistApiTest {
                 .isEqualTo(HttpStatus.OK);
         JsonNode opened = ada.get("/api/events/" + eventId).getBody();
         sell(ada, eventId, opened, List.of("A1", "A2", "A3", "A4", "A5", "A6"));
-        sell(ada, eventId, opened, List.of("A7", "A8", "A9", "A10"));
-        long adaHolds = hold(ada, eventId, opened, List.of("A11", "A12"));
-        sell(grace, eventId, opened, List.of("B1", "B2", "B3", "B4", "B5", "B6"));
-        sell(grace, eventId, opened, List.of("B7", "B8"));
+        sell(ada, eventId, opened, List.of("A7", "A8", "A9"));
+        long adaHolds = hold(ada, eventId, opened, List.of("A10", "A11"));
+        sell(grace, eventId, opened, List.of("A12", "B1", "B2", "B3", "B4", "B5"));
+        sell(grace, eventId, opened, List.of("B6", "B7", "B8"));
         assertThat(grace.post("/api/events/" + eventId + "/waitlist", java.util.Map.of()).getStatusCode())
                 .isEqualTo(HttpStatus.OK);
         assertThat(ada.post("/api/events/" + eventId + "/waitlist", java.util.Map.of()).getStatusCode())
                 .isEqualTo(HttpStatus.OK);
 
         ResponseEntity<JsonNode> declined = ada.post("/api/orders/" + adaHolds + "/checkout", java.util.Map.of(
-                "seatIds", List.of(seatId(opened, "A11"), seatId(opened, "A12")),
+                "seatIds", List.of(seatId(opened, "A10"), seatId(opened, "A11")),
                 "mock", "decline"));
 
         assertThat(declined.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(declined.getBody().get("payment").get("status").asText()).isEqualTo("declined");
         assertThat(declined.getBody().get("holds")).isEmpty();
         JsonNode map = ada.get("/api/events/" + eventId).getBody();
+        assertThat(seatState(map, "A10")).isEqualTo("held");
         assertThat(seatState(map, "A11")).isEqualTo("held");
-        assertThat(seatState(map, "A12")).isEqualTo("held");
         assertThat(ada.get("/api/events/" + eventId + "/waitlist").getBody().path("orderId").isNull()).isTrue();
         JsonNode offer = grace.get("/api/orders/" + grace.get("/api/events/" + eventId + "/waitlist")
                 .getBody().get("orderId").asLong()).getBody();
+        assertThat(holdLabeled(offer, "A10").get("heldUntil").asText()).isEqualTo("2026-10-16T18:15:00Z");
         assertThat(holdLabeled(offer, "A11").get("heldUntil").asText()).isEqualTo("2026-10-16T18:15:00Z");
-        assertThat(holdLabeled(offer, "A12").get("heldUntil").asText()).isEqualTo("2026-10-16T18:15:00Z");
     }
 
     @Test
